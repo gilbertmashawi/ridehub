@@ -1,0 +1,605 @@
+// lib/screens/customer/customer_home_screen.dart
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:riderhub/screens/customer/TrackDeliveryWrapperScreen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:riderhub/screens/customer/send_request_screen.dart';
+import 'package:riderhub/screens/customer/track_delivery_screen.dart';
+import 'package:riderhub/screens/customer/delivery_history_screen.dart';
+import 'package:riderhub/screens/customer/notifications_screen.dart';
+import 'package:riderhub/screens/customer/settings_screen.dart';
+import 'package:riderhub/screens/customer/apply_rider_screen.dart';
+import 'package:riderhub/screens/rider/rider_status_screen.dart';
+
+import 'package:riderhub/screens/login.dart';
+
+class CustomerHomeScreen extends StatefulWidget {
+  const CustomerHomeScreen({super.key});
+
+  @override
+  State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
+}
+
+class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+  int _currentIndex = 0;
+
+  String _userName = 'User';
+  String _userPhone = '';
+  String _userType = 'customer';
+  bool _isLoading = true;
+  Map<String, dynamic>? _applicationData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sessionId = prefs.getString('session_id');
+
+    if (sessionId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final response = await http
+          .get(
+            Uri.parse(
+              'https://chareta.com/riderhub/api/api.php?action=profile',
+            ),
+            headers: {'X-Session-Id': sessionId},
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['error'] == null) {
+          setState(() {
+            _userName = data['name'] ?? 'User';
+            _userPhone = data['phone'] ?? '';
+            _userType = data['user_type'] ?? 'customer';
+            _isLoading = false;
+          });
+          // Cache
+          prefs.setString('user_name', _userName);
+          prefs.setString('user_phone', _userPhone);
+          prefs.setString('user_type', _userType);
+        }
+      }
+
+      // Load application status after profile
+      await _loadApplicationStatus();
+    } catch (e) {
+      debugPrint('Profile load error: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadApplicationStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sessionId = prefs.getString('session_id');
+
+    if (sessionId == null) return;
+
+    try {
+      final response = await http
+          .get(
+            Uri.parse(
+              'https://chareta.com/riderhub/api/api.php?action=rider_application_status',
+            ),
+            headers: {'X-Session-Id': sessionId},
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _applicationData = data;
+        });
+        debugPrint('Application status loaded: $data');
+      }
+    } catch (e) {
+      debugPrint('Application status load error: $e');
+    }
+  }
+
+  // Future<void> _logout() async {
+  //   final prefs = await SharedPreferences.getInstance();
+  //   await prefs.clear();
+  //   if (mounted) {
+  //     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+  //   }
+  // }
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
+  void _onTabTapped(int index) {
+    setState(() => _currentIndex = index);
+  }
+
+  // Check if user can apply to be a rider
+  bool get _canApplyForRider {
+    // User can apply if:
+    // 1. They are a regular customer (user_type = 'customer')
+    // 2. AND they haven't applied yet (status = 'not_applied' or null)
+    final status =
+        _applicationData?['status']?.toString().toLowerCase() ?? 'not_applied';
+    return _userType == 'customer' && status == 'not_applied';
+  }
+
+  // Check if user has a pending rider application
+  bool get _hasPendingRiderApplication {
+    // User has pending application if:
+    // 1. They are a pending_rider (user_type = 'pending_rider')
+    // 2. OR they have an application with pending status
+    final status =
+        _applicationData?['status']?.toString().toLowerCase() ?? 'not_applied';
+    return _userType == 'pending_rider' || status == 'pending';
+  }
+
+  Widget _buildApplicationStatusCard() {
+    final status =
+        _applicationData?['status']?.toString().toLowerCase() ?? 'not_applied';
+    final riderCode = _applicationData?['rider_code'];
+    final rejectionReason = _applicationData?['rejection_reason'];
+
+    debugPrint(
+      'Building status card - Status: $status, User Type: $_userType, Rider Code: $riderCode',
+    );
+
+    // If user has applied OR is a pending_rider, show status card
+    if (status != 'not_applied' || _userType == 'pending_rider') {
+      Color statusColor;
+      IconData statusIcon;
+      String statusTitle;
+      String statusSubtitle;
+      String buttonText;
+      bool showBadge = false;
+      String badgeText = '';
+
+      // Determine the actual status to display
+      String displayStatus = status;
+      if (_userType == 'pending_rider' && status == 'not_applied') {
+        displayStatus = 'pending';
+      }
+
+      switch (displayStatus) {
+        case 'pending':
+          statusColor = Colors.orange;
+          statusIcon = Icons.hourglass_empty;
+          statusTitle = 'Application Under Review';
+          statusSubtitle = 'Your application is being processed';
+          buttonText = 'CHECK STATUS';
+          showBadge = true;
+          badgeText = 'PENDING';
+          break;
+
+        case 'approved':
+          statusColor = Colors.green;
+          statusIcon = Icons.check_circle;
+          statusTitle = 'Congratulations!';
+          statusSubtitle = riderCode != null
+              ? 'Your Rider Code: $riderCode'
+              : 'You are now a Chareta Rider!';
+          buttonText = 'GO TO RIDER DASHBOARD';
+          showBadge = true;
+          badgeText = 'APPROVED';
+          break;
+
+        case 'rejected':
+          statusColor = Colors.red;
+          statusIcon = Icons.warning;
+          statusTitle = 'Application Update';
+          statusSubtitle = rejectionReason != null
+              ? 'Reason: $rejectionReason'
+              : 'Your application needs attention';
+          buttonText = 'VIEW DETAILS';
+          showBadge = true;
+          badgeText = 'ACTION REQUIRED';
+          break;
+
+        default:
+          statusColor = Colors.grey;
+          statusIcon = Icons.help_outline;
+          statusTitle = 'Application Status';
+          statusSubtitle = 'Status: $displayStatus';
+          buttonText = 'CHECK STATUS';
+      }
+
+      return Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: statusColor.withOpacity(0.3), width: 1),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(statusIcon, color: statusColor, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          statusTitle,
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: statusColor,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          statusSubtitle,
+                          style: GoogleFonts.inter(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (showBadge)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: statusColor),
+                      ),
+                      child: Text(
+                        badgeText,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RiderStatusScreen(),
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: statusColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(buttonText),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // If user can apply (regular customer with no application), show the "Become a Rider" card
+    if (_canApplyForRider) {
+      return Card(
+        elevation: 2,
+        child: ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF667eea).withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.motorcycle, color: Color(0xFF667eea)),
+          ),
+          title: Text(
+            'Become a Rider',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+          ),
+          subtitle: const Text('Earn extra income delivering with Chareta'),
+          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ApplyRiderScreen()),
+          ),
+        ),
+      );
+    }
+
+    // If none of the above conditions are met, return an empty container
+    return const SizedBox.shrink();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> pages = [
+      _buildHomeTab(),
+      const DeliveryHistoryScreen(),
+      const NotificationsScreen(),
+      const SettingsScreen(),
+    ];
+
+    return Scaffold(
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          SliverAppBar(
+            expandedHeight: 180,
+            floating: false,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                'Hello, ${_userName.split(' ').first}',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+              ),
+              background: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      right: -50,
+                      top: -50,
+                      child: Container(
+                        width: 200,
+                        height: 200,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.1),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: _logout,
+                tooltip: 'Logout',
+              ),
+            ],
+          ),
+        ],
+        body: pages[_currentIndex],
+      ),
+      floatingActionButton: _currentIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SendRequestScreen()),
+              ),
+              backgroundColor: const Color(0xFF667eea),
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: Text(
+                'New Request',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: _onTabTapped,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: const Color(0xFF667eea),
+        unselectedItemColor: Colors.grey,
+        selectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600),
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            label: 'Home',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: 'History',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.notifications_outlined),
+            label: 'Alerts',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.settings_outlined),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadUserProfile();
+        await _loadApplicationStatus();
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 20),
+
+            // Welcome Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.waving_hand,
+                    size: 40,
+                    color: Colors.white70,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Welcome back!',
+                    style: GoogleFonts.inter(
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    'What would you like to deliver today?',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 1.2,
+              children: [
+                _actionCard(
+                  Icons.send_outlined,
+                  'Send Request',
+                  const Color(0xFF667eea),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SendRequestScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _actionCard(
+                  Icons.track_changes,
+                  'Track Delivery',
+                  Colors.green,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const TrackDeliveryWrapperScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _actionCard(
+                  Icons.notifications_active,
+                  'Notifications',
+                  Colors.red.shade700,
+                  () {
+                    setState(() => _currentIndex = 2);
+                  },
+                ),
+                _actionCard(Icons.card_giftcard, 'Offers', Colors.purple, () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Offers coming soon!')),
+                  );
+                }),
+              ],
+            ),
+
+            const SizedBox(height: 32),
+
+            // Rider Application Section - Always show the card, it will handle logic internally
+            _buildApplicationStatusCard(),
+
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionCard(
+    IconData icon,
+    String title,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 36, color: color),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

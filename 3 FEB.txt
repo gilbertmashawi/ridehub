@@ -1,0 +1,8 @@
+when sending a delivery, allow flexible selecting of pickup position
+also a field to enter address ie  with some hint text in grey
+
+
+upload proof of payment,, payment status, update
+security not to see jobs
+pay $ a week
+approved via admin dashboard

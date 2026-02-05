@@ -1,0 +1,798 @@
+// Enhanced lib/screens/customer/send_request_screen.dart
+// Updated with proper API integration for creating requests
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:http_parser/http_parser.dart';
+
+class SendRequestScreen extends StatefulWidget {
+  const SendRequestScreen({super.key});
+
+  @override
+  State<SendRequestScreen> createState() => _SendRequestScreenState();
+}
+
+class _SendRequestScreenState extends State<SendRequestScreen> {
+  final _formKey = GlobalKey<FormState>();
+  String? _parcelSize;
+  String? _paymentMethod;
+  final TextEditingController _suggestedFareController =
+      TextEditingController();
+
+  // Map variables
+  GoogleMapController? _mapController;
+  LatLng? _pickupPosition;
+  LatLng? _dropoffPosition;
+  File? _parcelPhoto;
+
+  // Default Harare position
+  static const LatLng _harare = LatLng(-17.8249, 31.0469);
+
+  bool _isLoading = false;
+  bool _isSettingPickup = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocationForPickup();
+  }
+
+  Future<void> _getCurrentLocationForPickup() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showError('Location services are disabled. Please enable them.');
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        _showError('Location permissions are denied.');
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _showError('Location permissions are permanently denied.');
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      setState(() {
+        _pickupPosition = LatLng(position.latitude, position.longitude);
+      });
+      if (_mapController != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(_pickupPosition!, 15),
+        );
+      }
+    } catch (e) {
+      _showError('Failed to get current location: $e');
+    }
+  }
+
+  Future<void> _pickPhoto() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        _parcelPhoto = File(image.path);
+      });
+    }
+  }
+
+  Future<void> _submitRequest() async {
+    debugPrint('=== SUBMIT REQUEST STARTED (MULTIPART VERSION WITH PHOTO) ===');
+
+    if (_formKey.currentState!.validate() &&
+        _pickupPosition != null &&
+        _dropoffPosition != null &&
+        _parcelSize != null &&
+        _paymentMethod != null) {
+      debugPrint('✅ All validations passed');
+
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        final sessionId = await _getSessionId();
+        if (sessionId == null) {
+          debugPrint('❌ No session found');
+          _showError('No session found. Please log in again.');
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
+
+        debugPrint('✅ Session ID: $sessionId');
+
+        // Create multipart request
+        var request = http.MultipartRequest(
+          'POST',
+          Uri.parse('https://chareta.com/riderhub/api/api.php?action=requests'),
+        );
+
+        // Add headers
+        request.headers['X-Session-Id'] = sessionId;
+
+        // Add form fields
+        request.fields['pickup_lat'] = _pickupPosition!.latitude.toString();
+        request.fields['pickup_lng'] = _pickupPosition!.longitude.toString();
+        request.fields['dropoff_lat'] = _dropoffPosition!.latitude.toString();
+        request.fields['dropoff_lng'] = _dropoffPosition!.longitude.toString();
+        request.fields['parcel_size'] = _parcelSize!.toLowerCase();
+        request.fields['suggested_fare'] = _suggestedFareController.text.isEmpty
+            ? '0'
+            : _suggestedFareController.text;
+        request.fields['payment_method'] = _paymentMethod!.toLowerCase();
+
+        // Add parcel photo if available
+        if (_parcelPhoto != null) {
+          debugPrint('📸 Adding parcel photo from: ${_parcelPhoto!.path}');
+
+          try {
+            // Check file size
+            final length = await _parcelPhoto!.length();
+            final sizeInMB = length / (1024 * 1024);
+            debugPrint('📊 Photo size: ${sizeInMB.toStringAsFixed(2)} MB');
+
+            if (sizeInMB > 2) {
+              debugPrint(
+                '⚠️ WARNING: File is ${sizeInMB.toStringAsFixed(2)} MB',
+              );
+              // You might want to compress it here
+            }
+
+            // Get file extension
+            String extension = _parcelPhoto!.path.split('.').last.toLowerCase();
+
+            // Determine content type
+            String contentType;
+            if (extension == 'png') {
+              contentType = 'image/png';
+            } else if (extension == 'gif') {
+              contentType = 'image/gif';
+            } else {
+              contentType = 'image/jpeg';
+            }
+
+            request.files.add(
+              await http.MultipartFile.fromPath(
+                'parcel_photo',
+                _parcelPhoto!.path,
+                filename:
+                    'parcel_${DateTime.now().millisecondsSinceEpoch}.$extension',
+                contentType: MediaType.parse(contentType),
+              ),
+            );
+            debugPrint('✅ Photo added to request (type: $contentType)');
+          } catch (e) {
+            debugPrint('❌ Error adding photo: $e');
+            // Continue without photo
+          }
+        } else {
+          debugPrint('📸 No photo to upload');
+        }
+
+        debugPrint('🚀 Sending multipart request with photo...');
+
+        // Send request
+        final streamedResponse = await request.send();
+        final response = await http.Response.fromStream(streamedResponse);
+
+        debugPrint('📡 Response status: ${response.statusCode}');
+        debugPrint('📡 Response body: ${response.body}');
+
+        if (response.statusCode == 200) {
+          final responseData = jsonDecode(response.body);
+
+          if (responseData.containsKey('error')) {
+            _showError('Request failed: ${responseData['error']}');
+          } else if (responseData.containsKey('request_id')) {
+            _showSuccess(
+              'Delivery request posted successfully! Waiting for riders...',
+            );
+            Navigator.pop(context);
+          } else {
+            _showError('Unexpected response from server');
+          }
+        } else if (response.statusCode == 400) {
+          _showError('Bad request: Please check all fields');
+        } else if (response.statusCode == 403) {
+          await _clearSession();
+          _showError('Session expired. Please log in again.');
+          Future.delayed(const Duration(seconds: 2), () {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              '/login',
+              (route) => false,
+            );
+          });
+        } else {
+          _showError('Server error: ${response.statusCode}');
+        }
+      } catch (e) {
+        debugPrint('❌ Error: $e');
+        _showError('Network error: Please check your internet connection');
+      } finally {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } else {
+      // Show validation errors
+      String errorMessage = 'Please complete the following:\n';
+      if (_pickupPosition == null) errorMessage += '• Set pickup location\n';
+      if (_dropoffPosition == null) errorMessage += '• Set dropoff location\n';
+      if (_parcelSize == null) errorMessage += '• Select parcel size\n';
+      if (_paymentMethod == null) errorMessage += '• Select payment method\n';
+      if (!_formKey.currentState!.validate())
+        errorMessage += '• Fix form errors';
+
+      _showError(errorMessage);
+    }
+  }
+
+  // Helper methods
+  Future<bool> _verifySession() async {
+    final sessionId = await _getSessionId();
+    if (sessionId == null) return false;
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://chareta.com/riderhub/api/api.php?action=profile'),
+        headers: {'X-Session-Id': sessionId},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['error'] == null;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Session verification error: $e');
+      return false;
+    }
+  }
+
+  Future<void> _clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('session_id');
+    await prefs.remove('user_name');
+    await prefs.remove('user_phone');
+    await prefs.remove('user_type');
+  }
+
+  Future<String?> _getSessionId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('session_id');
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _setPickupLocation() {
+    setState(() {
+      _isSettingPickup = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Tap on map to set pickup location'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _setDropoffLocation() {
+    setState(() {
+      _isSettingPickup = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Tap on map to set dropoff location'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _handleMapTap(LatLng position) {
+    setState(() {
+      if (_isSettingPickup) {
+        _pickupPosition = position;
+      } else {
+        _dropoffPosition = position;
+      }
+    });
+  }
+
+  void _clearPickupLocation() {
+    setState(() {
+      _pickupPosition = null;
+    });
+  }
+
+  void _clearDropoffLocation() {
+    setState(() {
+      _dropoffPosition = null;
+    });
+  }
+
+  @override
+  void dispose() {
+    _suggestedFareController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Create Delivery Request',
+          style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: const Color(0xFF667eea),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Location Section
+              Text(
+                'Delivery Locations',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF667eea),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Set pickup and dropoff locations on the map',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Map Section
+              Container(
+                height: 250,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    children: [
+                      GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: _pickupPosition ?? _harare,
+                          zoom: 15,
+                        ),
+                        markers: {
+                          if (_pickupPosition != null)
+                            Marker(
+                              markerId: const MarkerId('pickup'),
+                              position: _pickupPosition!,
+                              icon: BitmapDescriptor.defaultMarkerWithHue(
+                                BitmapDescriptor.hueGreen,
+                              ),
+                              infoWindow: const InfoWindow(
+                                title: 'Pickup Location',
+                              ),
+                            ),
+                          if (_dropoffPosition != null)
+                            Marker(
+                              markerId: const MarkerId('dropoff'),
+                              position: _dropoffPosition!,
+                              icon: BitmapDescriptor.defaultMarkerWithHue(
+                                BitmapDescriptor.hueRed,
+                              ),
+                              infoWindow: const InfoWindow(
+                                title: 'Dropoff Location',
+                              ),
+                            ),
+                        },
+                        polylines: {
+                          if (_pickupPosition != null &&
+                              _dropoffPosition != null)
+                            Polyline(
+                              polylineId: const PolylineId('route'),
+                              points: [_pickupPosition!, _dropoffPosition!],
+                              color: Colors.blue,
+                              width: 3,
+                            ),
+                        },
+                        onMapCreated: (GoogleMapController controller) {
+                          _mapController = controller;
+                        },
+                        onTap: _handleMapTap,
+                      ),
+                      // Current mode indicator
+                      if (_isSettingPickup)
+                        Container(
+                          margin: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Setting Pickup',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          margin: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Setting Dropoff',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Location Controls
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _setPickupLocation,
+                      icon: const Icon(Icons.location_on, size: 18),
+                      label: const Text('Set Pickup'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isSettingPickup
+                            ? Colors.green
+                            : Colors.grey.shade300,
+                        foregroundColor: _isSettingPickup
+                            ? Colors.white
+                            : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _setDropoffLocation,
+                      icon: const Icon(Icons.location_searching, size: 18),
+                      label: const Text('Set Dropoff'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: !_isSettingPickup
+                            ? Colors.red
+                            : Colors.grey.shade300,
+                        foregroundColor: !_isSettingPickup
+                            ? Colors.white
+                            : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _pickupPosition == null
+                          ? null
+                          : _clearPickupLocation,
+                      icon: const Icon(Icons.clear, size: 16),
+                      label: const Text('Clear Pickup'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _dropoffPosition == null
+                          ? null
+                          : _clearDropoffLocation,
+                      icon: const Icon(Icons.clear, size: 16),
+                      label: const Text('Clear Dropoff'),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+
+              // Package Details Section
+              Text(
+                'Package Details',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF667eea),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Parcel Size Dropdown
+              DropdownButtonFormField<String>(
+                value: _parcelSize,
+                decoration: InputDecoration(
+                  labelText: 'Parcel Size *',
+                  hintText: 'Select parcel size',
+                  prefixIcon: const Icon(Icons.inventory_2),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                items: ['Small', 'Medium', 'Large']
+                    .map(
+                      (size) =>
+                          DropdownMenuItem(value: size, child: Text(size)),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() => _parcelSize = value),
+                validator: (value) =>
+                    value == null ? 'Please select parcel size' : null,
+              ),
+
+              const SizedBox(height: 16),
+
+              // Suggested Fare
+              TextFormField(
+                controller: _suggestedFareController,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Suggested Fare (USD) *',
+                  hintText: 'Enter amount you\'re willing to pay',
+                  prefixIcon: const Icon(Icons.attach_money),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter suggested fare';
+                  }
+                  final amount = double.tryParse(value);
+                  if (amount == null || amount <= 0) {
+                    return 'Please enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Payment Method
+              Text(
+                'Payment Method *',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: Column(
+                  children: [
+                    RadioListTile<String>(
+                      title: const Text('EcoCash'),
+                      subtitle: const Text('Mobile money payment'),
+                      value: 'ecocash',
+                      groupValue: _paymentMethod,
+                      onChanged: (value) =>
+                          setState(() => _paymentMethod = value),
+                    ),
+                    RadioListTile<String>(
+                      title: const Text('Cash on Delivery'),
+                      subtitle: const Text('Pay when package is delivered'),
+                      value: 'cash',
+                      groupValue: _paymentMethod,
+                      onChanged: (value) =>
+                          setState(() => _paymentMethod = value),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Optional Photo Upload
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Parcel Photo (Optional)',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Add a photo to help riders identify your package',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _pickPhoto,
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Add Photo'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF667eea),
+                          side: const BorderSide(color: Color(0xFF667eea)),
+                        ),
+                      ),
+                      if (_parcelPhoto != null) ...[
+                        const SizedBox(height: 12),
+                        Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                _parcelPhoto!,
+                                height: 100,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: CircleAvatar(
+                                radius: 14,
+                                backgroundColor: Colors.black54,
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _parcelPhoto = null;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _submitRequest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF667eea),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          'Post Delivery Request',
+                          style: GoogleFonts.inter(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Requirements reminder
+              Card(
+                color: Colors.blue.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info, color: Colors.blue.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Make sure to set both pickup and dropoff locations, select parcel size, and enter a fare amount.',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: Colors.blue.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+// org working

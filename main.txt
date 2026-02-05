@@ -1,0 +1,102 @@
+import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: const MapsHomePage(),
+    );
+  }
+}
+
+class MapsHomePage extends StatefulWidget {
+  const MapsHomePage({super.key});
+
+  @override
+  State<MapsHomePage> createState() => _MapsHomePageState();
+}
+
+class _MapsHomePageState extends State<MapsHomePage> {
+  GoogleMapController? mapController;
+
+  LatLng? currentLatLng;
+  Set<Marker> markers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    // Step 1: Request permission
+    LocationPermission permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    // Step 2: Get current location
+    Position position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    currentLatLng = LatLng(position.latitude, position.longitude);
+
+    // Step 3: Set marker
+    markers.clear();
+    markers.add(
+      Marker(
+        markerId: const MarkerId("me"),
+        position: currentLatLng!,
+        infoWindow: const InfoWindow(title: "RiderHub testing "),
+      ),
+    );
+
+    // Step 4: Move camera
+    if (mapController != null) {
+      mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(currentLatLng!, 16),
+      );
+    }
+
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("RiderHub testing Location"),
+        centerTitle: true,
+      ),
+      body: GoogleMap(
+        initialCameraPosition: const CameraPosition(
+          target: LatLng(0, 0), // temporary
+          zoom: 1,
+        ),
+        myLocationEnabled: true,
+        myLocationButtonEnabled: true,
+        markers: markers,
+        onMapCreated: (controller) {
+          mapController = controller;
+          // Move camera only when location is ready
+          if (currentLatLng != null) {
+            mapController!.animateCamera(
+              CameraUpdate.newLatLngZoom(currentLatLng!, 16),
+            );
+          }
+        },
+      ),
+    );
+  }
+}

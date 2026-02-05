@@ -1,0 +1,1768 @@
+// lib/screens/signup_screen.dart
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:country_code_picker/country_code_picker.dart';
+import 'dart:convert';
+import 'dart:io'; // File
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_number/mobile_number.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import 'login.dart';
+import '../screens/customer/customer_home_screen.dart';
+import '../services/notification_service.dart';
+
+const String _baseUrl = 'https://chareta.com/riderhub/api/api.php';
+
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
+  @override
+  State<SignupScreen> createState() => _SignupScreenState();
+}
+
+class _SignupScreenState extends State<SignupScreen> {
+  bool _isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 40),
+              Center(
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    gradient: const RadialGradient(
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                      center: Alignment.center,
+                      radius: 0.8,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: ClipOval(
+                    child: Image.asset(
+                      'assets/logo.png',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.delivery_dining_rounded,
+                        size: 40,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                'Create Your Account',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Join Biker Delivery today',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 60),
+
+              // PHONE BUTTON
+              SizedBox(
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading
+                      ? null
+                      : () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PhoneEntryScreen(),
+                          ),
+                        ),
+                  icon: const Icon(Icons.phone_rounded, color: Colors.white),
+                  label: Text(
+                    'Continue with Phone',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF667eea),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // EMAIL BUTTON
+              SizedBox(
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading
+                      ? null
+                      : () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const EmailEntryScreen(),
+                          ),
+                        ),
+                  icon: const Icon(Icons.email_rounded, color: Colors.white),
+                  label: Text(
+                    'Continue with Email',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF764ba2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 4,
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 40),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    "Already have an account? ",
+                    style: GoogleFonts.inter(color: Colors.grey.shade600),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    ),
+                    child: Text(
+                      'Sign In',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFF667eea),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===================================================================
+// PHONE ENTRY SCREEN – LOCKED TO REAL SIM CARD NUMBER
+// ===================================================================
+class PhoneEntryScreen extends StatefulWidget {
+  const PhoneEntryScreen({super.key});
+  @override
+  State<PhoneEntryScreen> createState() => _PhoneEntryScreenState();
+}
+
+class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
+  final TextEditingController _phoneController = TextEditingController();
+  CountryCode _selectedCode = CountryCode.fromCountryCode('ZW');
+  bool _isSending = false;
+  bool _isDetecting = true;
+  String? _devicePhone; // +263771234567
+
+  @override
+  void initState() {
+    super.initState();
+    detectSimNumber();
+  }
+
+  Future<void> detectSimNumber() async {
+    setState(() => _isDetecting = true);
+
+    try {
+      var status = await Permission.phone.request();
+      if (status.isGranted) {
+        String? mobile = await MobileNumber.mobileNumber;
+        if (mobile != null && mobile.isNotEmpty) {
+          String cleaned = mobile.replaceAll(RegExp(r'\D'), '');
+          if (cleaned.startsWith('263')) cleaned = cleaned.substring(3);
+          if (cleaned.startsWith('0')) cleaned = cleaned.substring(1);
+
+          final String full = '+263$cleaned';
+          setState(() {
+            _devicePhone = full;
+            _phoneController.text = cleaned; // show 771234567
+            _selectedCode = CountryCode(
+              dialCode: '+263',
+              code: 'ZW',
+              name: 'Zimbabwe',
+            );
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('SIM detection failed: $e');
+    } finally {
+      setState(() => _isDetecting = false);
+    }
+  }
+
+  Future<void> _sendOtp() async {
+    if (_phoneController.text.trim().isEmpty) {
+      _showError('Phone number is required');
+      return;
+    }
+
+    final String entered =
+        _selectedCode.dialCode! + _phoneController.text.trim();
+
+    // BLOCK fake numbers on Android
+    if (_devicePhone != null && entered != _devicePhone) {
+      _showError(
+        'You can only use the number on this phone:\n0${_devicePhone!.substring(4)}',
+      );
+      return;
+    }
+
+    setState(() => _isSending = true);
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl?action=send_otp'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'phone': entered}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint('API: $data');
+
+        if (data['dev_otp'] != null) {
+          await NotificationService.showOtpNotification(
+            data['dev_otp'].toString(),
+          );
+        }
+
+        if (data['error'] != null) {
+          _showError(data['error']);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('OTP sent! Check your notifications'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PhoneOtpVerifyScreen(phone: entered),
+            ),
+          );
+        }
+      } else {
+        _showError('Failed to send OTP');
+      }
+    } catch (e) {
+      _showError('Network error: $e');
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  void _showError(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          'Phone Number',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black87,
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 20),
+              Text(
+                'Verify Your Phone Number',
+                style: GoogleFonts.inter(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "We detected your number from SIM card",
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+
+              const SizedBox(height: 40),
+
+              Row(
+                children: [
+                  CountryCodePicker(
+                    onChanged: (_) {}, // locked
+                    initialSelection: 'ZW',
+                    enabled: false,
+                    textStyle: GoogleFonts.inter(fontSize: 18),
+                    padding: EdgeInsets.zero,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      readOnly:
+                          _devicePhone !=
+                          null, // completely locked if SIM detected
+                      decoration: InputDecoration(
+                        prefixText: '0',
+                        prefixStyle: GoogleFonts.inter(
+                          fontSize: 18,
+                          color: Colors.black87,
+                        ),
+                        filled: true,
+                        fillColor: _devicePhone != null
+                            ? Colors.green.shade50
+                            : Colors.grey.shade50,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.green.shade300),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF667eea),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                      style: GoogleFonts.inter(fontSize: 18),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (_devicePhone != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_user,
+                        color: Colors.green,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Verified from SIM: 0${_devicePhone!.substring(4)}',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              if (_isDetecting) ...[
+                const SizedBox(height: 20),
+                const Center(child: CircularProgressIndicator()),
+                const SizedBox(height: 10),
+                Text(
+                  'Detecting SIM card...',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(color: Colors.grey),
+                ),
+              ],
+
+              const Spacer(),
+
+              SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _isSending || _isDetecting ? null : _sendOtp,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF667eea),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSending
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          'Send OTP',
+                          style: GoogleFonts.inter(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===================================================================
+// EMAIL ENTRY SCREEN
+// ===================================================================
+class EmailEntryScreen extends StatefulWidget {
+  const EmailEntryScreen({super.key});
+  @override
+  State<EmailEntryScreen> createState() => _EmailEntryScreenState();
+}
+
+class _EmailEntryScreenState extends State<EmailEntryScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  bool _isSending = false;
+
+  Future<void> _sendEmailOtp() async {
+    final String email = _emailController.text.trim();
+
+    if (email.isEmpty || !RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email)) {
+      _showError('Please enter a valid email address');
+      return;
+    }
+
+    setState(() => _isSending = true);
+
+    try {
+      // First check if email already exists
+      final checkResponse = await http.post(
+        Uri.parse('$_baseUrl?action=check_email_exists'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+
+      if (checkResponse.statusCode == 200) {
+        final checkData = jsonDecode(checkResponse.body);
+        if (checkData['exists'] == true) {
+          _showError(
+            'Email already registered. Please use another email or login.',
+          );
+          setState(() => _isSending = false);
+          return;
+        }
+      }
+
+      // Send OTP
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl?action=send_email_otp'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email}),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        debugPrint('API: $data');
+
+        if (data['dev_otp'] != null) {
+          await NotificationService.showOtpNotification(
+            data['dev_otp'].toString(),
+          );
+        }
+
+        if (data['error'] != null) {
+          _showError(data['error']);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('OTP sent to your email!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EmailOtpVerifyScreen(email: email),
+            ),
+          );
+        }
+      } else {
+        _showError('Failed to send OTP');
+      }
+    } catch (e) {
+      _showError('Network error: $e');
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  void _showError(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          'Email Address',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black87,
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 20),
+              Text(
+                'Verify Your Email Address',
+                style: GoogleFonts.inter(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "We'll send a verification code to your email",
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 40),
+
+              TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'Email Address',
+                  prefixIcon: const Icon(Icons.email),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF764ba2),
+                      width: 2,
+                    ),
+                  ),
+                ),
+                style: GoogleFonts.inter(fontSize: 18),
+              ),
+
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info, color: Colors.blue, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Email OTP is cost-effective and secure. Check your inbox (and spam folder).',
+                        style: GoogleFonts.inter(color: Colors.blue.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Spacer(),
+
+              SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _isSending ? null : _sendEmailOtp,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF764ba2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSending
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          'Send OTP',
+                          style: GoogleFonts.inter(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===================================================================
+// PHONE OTP VERIFY SCREEN
+// ===================================================================
+class PhoneOtpVerifyScreen extends StatefulWidget {
+  final String phone;
+  const PhoneOtpVerifyScreen({super.key, required this.phone});
+  @override
+  State<PhoneOtpVerifyScreen> createState() => _PhoneOtpVerifyScreenState();
+}
+
+class _PhoneOtpVerifyScreenState extends State<PhoneOtpVerifyScreen> {
+  final TextEditingController _otpController = TextEditingController();
+  bool _isVerifying = false;
+
+  Future<void> _verifyOtp() async {
+    if (_otpController.text.length != 6) {
+      _showError('Enter 6-digit OTP');
+      return;
+    }
+
+    setState(() => _isVerifying = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl?action=verify_otp'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'phone': widget.phone, 'otp': _otpController.text}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['verified'] == true) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PhoneRegisterDetailsScreen(phone: widget.phone),
+            ),
+          );
+        } else {
+          _showError(data['error'] ?? 'Invalid OTP');
+        }
+      } else {
+        _showError('Verification failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      _showError('Network error: $e');
+    } finally {
+      setState(() => _isVerifying = false);
+    }
+  }
+
+  void _showError(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    }
+  }
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Verify OTP'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
+            Text(
+              'Enter 6-digit code sent to\n${widget.phone}',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(fontSize: 18),
+            ),
+            const SizedBox(height: 40),
+            TextField(
+              controller: _otpController,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              maxLength: 6,
+              style: GoogleFonts.inter(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 30),
+            ElevatedButton(
+              onPressed: _isVerifying ? null : _verifyOtp,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 56),
+                backgroundColor: const Color(0xFF667eea),
+              ),
+              child: _isVerifying
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Verify', style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===================================================================
+// EMAIL OTP VERIFY SCREEN
+// ===================================================================
+class EmailOtpVerifyScreen extends StatefulWidget {
+  final String email;
+  const EmailOtpVerifyScreen({super.key, required this.email});
+  @override
+  State<EmailOtpVerifyScreen> createState() => _EmailOtpVerifyScreenState();
+}
+
+class _EmailOtpVerifyScreenState extends State<EmailOtpVerifyScreen> {
+  final TextEditingController _otpController = TextEditingController();
+  bool _isVerifying = false;
+
+  Future<void> _verifyOtp() async {
+    if (_otpController.text.length != 6) {
+      _showError('Enter 6-digit OTP');
+      return;
+    }
+
+    setState(() => _isVerifying = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl?action=verify_email_otp'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': widget.email, 'otp': _otpController.text}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['verified'] == true) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EmailRegisterDetailsScreen(email: widget.email),
+            ),
+          );
+        } else {
+          _showError(data['error'] ?? 'Invalid OTP');
+        }
+      } else {
+        _showError('Verification failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      _showError('Network error: $e');
+    } finally {
+      setState(() => _isVerifying = false);
+    }
+  }
+
+  void _showError(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    }
+  }
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Verify Email OTP'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
+            Text(
+              'Enter 6-digit code sent to\n${widget.email}',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(fontSize: 18),
+            ),
+            const SizedBox(height: 40),
+            TextField(
+              controller: _otpController,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              maxLength: 6,
+              style: GoogleFonts.inter(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 30),
+            ElevatedButton(
+              onPressed: _isVerifying ? null : _verifyOtp,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 56),
+                backgroundColor: const Color(0xFF764ba2),
+              ),
+              child: _isVerifying
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Verify', style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===================================================================
+// PHONE REGISTER DETAILS SCREEN (Existing)
+// ===================================================================
+class PhoneRegisterDetailsScreen extends StatefulWidget {
+  final String phone;
+  const PhoneRegisterDetailsScreen({super.key, required this.phone});
+
+  @override
+  State<PhoneRegisterDetailsScreen> createState() =>
+      _PhoneRegisterDetailsScreenState();
+}
+
+class _PhoneRegisterDetailsScreenState
+    extends State<PhoneRegisterDetailsScreen> {
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  // Image files
+  File? _facePicture;
+  File? _idFrontPicture;
+
+  bool _isRegistering = false;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  // Helper to pick an image
+  Future<void> _pickImage(ImageSource source, bool isFacePicture) async {
+    final pickedFile = await _picker.pickImage(
+      source: source,
+      imageQuality: 50, // Compress image quality
+    );
+
+    if (pickedFile != null) {
+      setState(() {
+        if (isFacePicture) {
+          _facePicture = File(pickedFile.path);
+        } else {
+          _idFrontPicture = File(pickedFile.path);
+        }
+      });
+    }
+  }
+
+  // Widget to display an image picker button
+  Widget _buildImagePicker({
+    required String title,
+    required String buttonText,
+    required File? imageFile,
+    required bool isFacePicture,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: imageFile == null
+              ? Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _isRegistering
+                        ? null
+                        : () async {
+                            await _pickImage(
+                              ImageSource.gallery,
+                              isFacePicture,
+                            );
+                          },
+                    icon: const Icon(Icons.upload_file),
+                    label: Text(buttonText),
+                  ),
+                )
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(imageFile, fit: BoxFit.cover),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            if (isFacePicture) {
+                              _facePicture = null;
+                            } else {
+                              _idFrontPicture = null;
+                            }
+                          });
+                        },
+                        child: CircleAvatar(
+                          backgroundColor: Colors.red.withOpacity(0.8),
+                          radius: 14,
+                          child: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Future<void> _registerUser() async {
+    final String firstName = _firstNameController.text.trim();
+    final String lastName = _lastNameController.text.trim();
+    final String password = _passwordController.text.trim();
+
+    // Validation
+    if (firstName.isEmpty || lastName.isEmpty || password.isEmpty) {
+      _showError('Please fill in all text fields');
+      return;
+    }
+    if (password.length < 6) {
+      _showError('Password must be at least 6 characters');
+      return;
+    }
+    if (_facePicture == null || _idFrontPicture == null) {
+      _showError(
+        'Please upload both your face picture and ID/License front picture',
+      );
+      return;
+    }
+
+    final String fullName = '$firstName $lastName';
+    setState(() => _isRegistering = true);
+
+    try {
+      // 1. Create a Multipart Request
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl?action=register_multipart'), // New action
+      );
+
+      // 2. Add text fields to the request
+      request.fields['name'] = fullName;
+      request.fields['phone'] = widget.phone;
+      request.fields['password'] = password;
+      request.fields['user_type'] = 'customer';
+
+      // 3. Add files to the request
+      request.files.add(
+        await http.MultipartFile.fromPath('face_picture', _facePicture!.path),
+      );
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'id_front_picture',
+          _idFrontPicture!.path,
+        ),
+      );
+
+      // 4. Send the request
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      // 5. Process the response
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['error'] == null) {
+          // FIXED: Save BOTH session_id AND user_id
+          final String sessionId = responseData['session_id']; // REAL session
+          final String userId = responseData['user_id'].toString();
+
+          final prefs = await SharedPreferences.getInstance();
+          // Save BOTH session_id AND user_id
+          await prefs.setString('session_id', sessionId);
+          await prefs.setInt('user_id', int.parse(userId));
+          await prefs.setString(
+            'user_type',
+            responseData['user_type'] ?? 'customer',
+          );
+          await prefs.setBool('isLoggedIn', true);
+
+          await _fetchAndStoreUserProfile(sessionId);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Registration successful!'),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8)),
+                ),
+              ),
+            );
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CustomerHomeScreen(),
+              ),
+            );
+          }
+        } else {
+          _showError(responseData['error']);
+        }
+      } else {
+        _showError('Registration failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      _showError('Network error: $e');
+    } finally {
+      if (mounted) setState(() => _isRegistering = false);
+    }
+  }
+
+  Future<void> _fetchAndStoreUserProfile(String sessionId) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('$_baseUrl?action=profile'),
+            headers: {'X-Session-Id': sessionId},
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['error'] == null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_name', responseData['name'] ?? '');
+          await prefs.setString('user_phone', responseData['phone'] ?? '');
+          await prefs.setString('user_email', responseData['email'] ?? '');
+          // You might store the image URLs here too if you need them in the app
+        }
+      }
+    } catch (e) {
+      debugPrint('Profile fetch error: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          'Complete Registration',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black87,
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+                Text(
+                  'Tell us about yourself',
+                  style: GoogleFonts.inter(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your phone ${widget.phone} is verified. Please complete your profile and upload documents.',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 48),
+                // Text Fields
+                TextFormField(
+                  controller: _firstNameController,
+                  decoration: _buildInputDecoration('First Name'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _lastNameController,
+                  decoration: _buildInputDecoration('Last Name'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: _buildInputDecoration('Password (min 6 chars)'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 32),
+
+                // Image Pickers
+                _buildImagePicker(
+                  title: 'Upload Face Picture',
+                  buttonText: 'Select Face Image',
+                  imageFile: _facePicture,
+                  isFacePicture: true,
+                ),
+
+                _buildImagePicker(
+                  title: 'Upload ID/License Front Picture',
+                  buttonText: 'Select ID/License Image',
+                  imageFile: _idFrontPicture,
+                  isFacePicture: false,
+                ),
+
+                const SizedBox(height: 32),
+
+                // Registration Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _isRegistering ? null : _registerUser,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF667eea),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                      shadowColor: Colors.black.withOpacity(0.2),
+                    ),
+                    child: _isRegistering
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : Text(
+                            'Complete Registration',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Helper for input decoration
+  InputDecoration _buildInputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: Colors.grey.shade600),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF667eea), width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+}
+
+// ===================================================================
+// EMAIL REGISTER DETAILS SCREEN
+// ===================================================================
+class EmailRegisterDetailsScreen extends StatefulWidget {
+  final String email;
+  const EmailRegisterDetailsScreen({super.key, required this.email});
+
+  @override
+  State<EmailRegisterDetailsScreen> createState() =>
+      _EmailRegisterDetailsScreenState();
+}
+
+class _EmailRegisterDetailsScreenState
+    extends State<EmailRegisterDetailsScreen> {
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  File? _facePicture;
+  File? _idFrontPicture;
+
+  bool _isRegistering = false;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _phoneController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source, bool isFacePicture) async {
+    final pickedFile = await _picker.pickImage(
+      source: source,
+      imageQuality: 50,
+    );
+
+    if (pickedFile != null) {
+      setState(() {
+        if (isFacePicture) {
+          _facePicture = File(pickedFile.path);
+        } else {
+          _idFrontPicture = File(pickedFile.path);
+        }
+      });
+    }
+  }
+
+  Widget _buildImagePicker({
+    required String title,
+    required String buttonText,
+    required File? imageFile,
+    required bool isFacePicture,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: imageFile == null
+              ? Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _isRegistering
+                        ? null
+                        : () async {
+                            await _pickImage(
+                              ImageSource.gallery,
+                              isFacePicture,
+                            );
+                          },
+                    icon: const Icon(Icons.upload_file),
+                    label: Text(buttonText),
+                  ),
+                )
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(imageFile, fit: BoxFit.cover),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            if (isFacePicture) {
+                              _facePicture = null;
+                            } else {
+                              _idFrontPicture = null;
+                            }
+                          });
+                        },
+                        child: CircleAvatar(
+                          backgroundColor: Colors.red.withOpacity(0.8),
+                          radius: 14,
+                          child: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Future<void> _registerUser() async {
+    final String firstName = _firstNameController.text.trim();
+    final String lastName = _lastNameController.text.trim();
+    final String phone = _phoneController.text.trim();
+    final String password = _passwordController.text.trim();
+
+    // Validation - phone is optional for email registration
+    if (firstName.isEmpty || lastName.isEmpty || password.isEmpty) {
+      _showError('Please fill in all required fields');
+      return;
+    }
+    if (password.length < 6) {
+      _showError('Password must be at least 6 characters');
+      return;
+    }
+    if (_facePicture == null || _idFrontPicture == null) {
+      _showError(
+        'Please upload both your face picture and ID/License front picture',
+      );
+      return;
+    }
+
+    final String fullName = '$firstName $lastName';
+    setState(() => _isRegistering = true);
+
+    try {
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl?action=register_multipart'),
+      );
+
+      // Add text fields
+      request.fields['name'] = fullName;
+      request.fields['email'] = widget.email;
+      if (phone.isNotEmpty) {
+        request.fields['phone'] = phone;
+      }
+      request.fields['password'] = password;
+      request.fields['user_type'] = 'customer';
+
+      // Add files
+      request.files.add(
+        await http.MultipartFile.fromPath('face_picture', _facePicture!.path),
+      );
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'id_front_picture',
+          _idFrontPicture!.path,
+        ),
+      );
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['error'] == null) {
+          final String sessionId = responseData['session_id'];
+          final String userId = responseData['user_id'].toString();
+
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('session_id', sessionId);
+          await prefs.setInt('user_id', int.parse(userId));
+          await prefs.setString(
+            'user_type',
+            responseData['user_type'] ?? 'customer',
+          );
+          await prefs.setBool('isLoggedIn', true);
+
+          await _fetchAndStoreUserProfile(sessionId);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Registration successful!'),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8)),
+                ),
+              ),
+            );
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CustomerHomeScreen(),
+              ),
+            );
+          }
+        } else {
+          _showError(responseData['error']);
+        }
+      } else {
+        _showError('Registration failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      _showError('Network error: $e');
+    } finally {
+      if (mounted) setState(() => _isRegistering = false);
+    }
+  }
+
+  Future<void> _fetchAndStoreUserProfile(String sessionId) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('$_baseUrl?action=profile'),
+            headers: {'X-Session-Id': sessionId},
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['error'] == null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_name', responseData['name'] ?? '');
+          await prefs.setString('user_phone', responseData['phone'] ?? '');
+          await prefs.setString('user_email', responseData['email'] ?? '');
+        }
+      }
+    } catch (e) {
+      debugPrint('Profile fetch error: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          'Complete Registration',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black87,
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+                Text(
+                  'Tell us about yourself',
+                  style: GoogleFonts.inter(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your email ${widget.email} is verified. Please complete your profile.',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 48),
+
+                // Text Fields
+                TextFormField(
+                  controller: _firstNameController,
+                  decoration: _buildInputDecoration('First Name *'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _lastNameController,
+                  decoration: _buildInputDecoration('Last Name *'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: _buildInputDecoration('Phone (Optional)'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: _buildInputDecoration('Password (min 6 chars) *'),
+                  style: GoogleFonts.inter(color: Colors.black87),
+                ),
+                const SizedBox(height: 32),
+
+                // Image Pickers
+                _buildImagePicker(
+                  title: 'Upload Face Picture *',
+                  buttonText: 'Select Face Image',
+                  imageFile: _facePicture,
+                  isFacePicture: true,
+                ),
+
+                _buildImagePicker(
+                  title: 'Upload ID/License Front Picture *',
+                  buttonText: 'Select ID/License Image',
+                  imageFile: _idFrontPicture,
+                  isFacePicture: false,
+                ),
+
+                const SizedBox(height: 32),
+
+                // Registration Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _isRegistering ? null : _registerUser,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF764ba2),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                      shadowColor: Colors.black.withOpacity(0.2),
+                    ),
+                    child: _isRegistering
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : Text(
+                            'Complete Registration',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _buildInputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: Colors.grey.shade600),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF764ba2), width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+}
