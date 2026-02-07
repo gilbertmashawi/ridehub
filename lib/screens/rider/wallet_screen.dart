@@ -1,454 +1,748 @@
-// wallet_screen.dart
+// lib/screens/rider/wallet_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import '../../services/ApiService.dart';
 
 class WalletScreen extends StatefulWidget {
-  const WalletScreen({super.key});
+  const WalletScreen({Key? key}) : super(key: key);
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  double _balance = 245.50;
-  double _todayEarnings = 32.75;
-  double _weeklyEarnings = 168.25;
+  double _walletBalance = 0.0;
+  List<TopUpHistory> _topUpHistory = [];
+  bool _isLoading = true;
 
-  final List<Map<String, dynamic>> _transactions = [
-    {
-      'id': '1',
-      'date': '2024-01-15',
-      'time': '14:30',
-      'amount': 12.50,
-      'type': 'delivery',
-      'description': 'Package delivery - CBD to Avondale',
-      'status': 'completed',
-    },
-    {
-      'id': '2',
-      'date': '2024-01-15',
-      'time': '11:15',
-      'amount': 8.75,
-      'type': 'delivery',
-      'description': 'Food delivery - Pizza Inn',
-      'status': 'completed',
-    },
-    {
-      'id': '3',
-      'date': '2024-01-14',
-      'amount': 45.00,
-      'type': 'payout',
-      'description': 'Weekly payout',
-      'status': 'completed',
-    },
-    {
-      'id': '4',
-      'date': '2024-01-13',
-      'time': '16:45',
-      'amount': 15.00,
-      'type': 'delivery',
-      'description': 'Document delivery',
-      'status': 'completed',
-    },
-  ];
+  File? _selectedImage;
+  final ImagePicker _picker = ImagePicker();
+  final TextEditingController _amountController = TextEditingController();
+  final List<double> _quickAmounts = [1.0, 2.0, 3.0, 4.0];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWalletData();
+  }
+
+  Future<void> _loadWalletData() async {
+    try {
+      // Load wallet balance from API
+      final walletData = await ApiService.getWalletBalance();
+      final historyData = await ApiService.getTopUpHistory();
+
+      setState(() {
+        _walletBalance = walletData['balance'] ?? 0.0;
+        _topUpHistory = List<TopUpHistory>.from(
+          historyData.map((item) => TopUpHistory.fromJson(item)),
+        );
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load wallet data: $e')));
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _selectedImage = File(pickedFile.path);
+      });
+    }
+  }
+
+  Future<void> _submitTopUp() async {
+    if (_amountController.text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Please enter amount')));
+      return;
+    }
+
+    if (_selectedImage == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Please upload proof of payment')));
+      return;
+    }
+
+    try {
+      final amount = double.parse(_amountController.text);
+      final validDays = _calculateValidDays(amount);
+
+      await ApiService.submitTopUp(
+        amount: amount,
+        validDays: validDays,
+        imageFile: _selectedImage!,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Top-up request submitted successfully')),
+      );
+
+      // Reset form
+      _amountController.clear();
+      setState(() {
+        _selectedImage = null;
+      });
+
+      // Reload data
+      _loadWalletData();
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to submit top-up: $e')));
+    }
+  }
+
+  void _selectQuickAmount(double amount) {
+    _amountController.text = amount.toStringAsFixed(0);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Selected: \$$amount (${_calculateValidDays(amount)} days)',
+        ),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  int _calculateValidDays(double amount) {
+    // 1$ = 7 days, 2$ = 14 days, 3$ = 21 days, 4$ = 28 days
+    return (amount * 7).toInt();
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
+      case 'pending':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'My Wallet',
+          'Wallet & Top-up',
           style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF667eea),
         foregroundColor: Colors.white,
         elevation: 0,
       ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Container(
+                color: Colors.grey.shade50,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Balance Card
+                    Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            Text(
+                              'Current Balance',
+                              style: GoogleFonts.inter(
+                                fontSize: 16,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '\$${_walletBalance.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(
+                                fontSize: 48,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF667eea),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.info_outline,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Balance determines active days. Top-up to continue service.',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        color: Colors.blue.shade800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
 
-      // ---------------- TAB CONTROLLER ----------------
-      body: DefaultTabController(
-        length: 2,
-        child: Column(
-          children: [
-            Container(
-              color: Colors.white,
-              child: const TabBar(
-                labelColor: Color(0xFF667eea),
-                unselectedLabelColor: Colors.grey,
-                indicatorColor: Color(0xFF667eea),
-                tabs: [
-                  Tab(text: "Top Up"),
-                  Tab(text: "Payout"),
-                ],
+                    const SizedBox(height: 24),
+
+                    // Quick Top-up Section
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Quick Top-up',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Select amount for instant days calculation',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Quick Amount Buttons
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    childAspectRatio: 2.5,
+                                    crossAxisSpacing: 12,
+                                    mainAxisSpacing: 12,
+                                  ),
+                              itemCount: _quickAmounts.length,
+                              itemBuilder: (context, index) {
+                                final amount = _quickAmounts[index];
+                                final days = _calculateValidDays(amount);
+                                return GestureDetector(
+                                  onTap: () => _selectQuickAmount(amount),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0xFF667eea),
+                                        width: 2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.grey.shade200,
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            '\$${amount.toStringAsFixed(0)}',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                              color: const Color(0xFF667eea),
+                                            ),
+                                          ),
+                                          Text(
+                                            '$days days',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Custom Amount Section
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Custom Top-up',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Enter any amount (min: \$1, max: \$100)',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Amount Input
+                            TextField(
+                              controller: _amountController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.attach_money),
+                                labelText: 'Enter amount',
+                                hintText: 'e.g., 5.00',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                suffixText: 'USD',
+                              ),
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            // Days Calculation Preview
+                            if (_amountController.text.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.calendar_today,
+                                      color: Colors.green.shade700,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${_calculateValidDays(double.tryParse(_amountController.text) ?? 0)} days',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.green.shade800,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Valid for ${_calculateValidDays(double.tryParse(_amountController.text) ?? 0)} days after approval',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: Colors.green.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Proof of Payment Section
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Proof of Payment',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Upload screenshot/photo of payment confirmation',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Image Upload Area
+                            GestureDetector(
+                              onTap: _pickImage,
+                              child: Container(
+                                height: 180,
+                                decoration: BoxDecoration(
+                                  color: _selectedImage == null
+                                      ? Colors.grey.shade100
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _selectedImage == null
+                                        ? Colors.grey.shade300
+                                        : const Color(0xFF667eea),
+                                    width: _selectedImage == null ? 1 : 2,
+                                  ),
+                                ),
+                                child: _selectedImage == null
+                                    ? Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.cloud_upload,
+                                            size: 60,
+                                            color: Colors.grey.shade400,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            'Tap to upload proof',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 16,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                          Text(
+                                            'JPG, PNG up to 5MB',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade500,
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Stack(
+                                          children: [
+                                            Image.file(
+                                              _selectedImage!,
+                                              width: double.infinity,
+                                              height: double.infinity,
+                                              fit: BoxFit.cover,
+                                            ),
+                                            Positioned(
+                                              top: 8,
+                                              right: 8,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  6,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black
+                                                      .withOpacity(0.6),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.check_circle,
+                                                  color: Colors.white,
+                                                  size: 20,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            // Submit Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _submitTopUp,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF667eea),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  elevation: 4,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.send, color: Colors.white),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Submit Top-up Request',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Top-up History Section
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Top-up History',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _loadWalletData,
+                                  icon: const Icon(Icons.refresh),
+                                  color: const Color(0xFF667eea),
+                                ),
+                              ],
+                            ),
+
+                            if (_topUpHistory.isEmpty) ...[
+                              const SizedBox(height: 40),
+                              Center(
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.history,
+                                      size: 60,
+                                      color: Colors.grey.shade300,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No top-up history',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 16,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 16),
+                              ..._topUpHistory
+                                  .map((item) => _buildHistoryItem(item))
+                                  .toList(),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
             ),
-
-            Expanded(
-              child: TabBarView(
-                children: [
-                  // ---------------- TOP UP TAB ----------------
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _buildBalanceCard(),
-                        const SizedBox(height: 24),
-                        _buildTopUpCard(),
-                      ],
-                    ),
-                  ),
-
-                  // ---------------- PAYOUT TAB ----------------
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _buildBalanceCard(),
-                        const SizedBox(height: 24),
-                        _buildEarningsOverview(),
-                        const SizedBox(height: 24),
-                        _buildPayoutHistory(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _requestPayout,
-        icon: const Icon(Icons.payment),
-        label: const Text('Request Payout'),
-        backgroundColor: const Color(0xFF667eea),
-      ),
     );
   }
 
-  // ---------------- BALANCE CARD ----------------
-  Widget _buildBalanceCard() {
+  Widget _buildHistoryItem(TopUpHistory item) {
     return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Text(
-            'Total Balance',
-            style: GoogleFonts.inter(fontSize: 16, color: Colors.white70),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '\$$_balance',
-            style: GoogleFonts.inter(
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildBalanceStat('Today', '\$$_todayEarnings'),
-              _buildBalanceStat('This Week', '\$$_weeklyEarnings'),
-              _buildBalanceStat('Jobs', '12'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBalanceStat(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: GoogleFonts.inter(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-          ),
-        ),
-        Text(
-          label,
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.white70),
-        ),
-      ],
-    );
-  }
-
-  // ---------------- EARNINGS OVERVIEW ----------------
-  Widget _buildEarningsOverview() {
-    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Earnings Overview',
-            style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          _buildEarningRow('Today', _todayEarnings, Colors.green),
-          _buildEarningRow('Yesterday', 28.50, Colors.green),
-          _buildEarningRow('This Week', _weeklyEarnings, Colors.blue),
-          _buildEarningRow('Last Week', 142.75, Colors.blue),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEarningRow(String period, double amount, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(period, style: GoogleFonts.inter(fontSize: 16)),
-          Text(
-            '\$$amount',
-            style: GoogleFonts.inter(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: color,
+          // Status Indicator
+          Container(
+            width: 8,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _getStatusColor(item.status),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+
+          const SizedBox(width: 16),
+
+          // Amount and Date
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '\$${item.amount.toStringAsFixed(2)}',
+                      style: GoogleFonts.inter(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(item.status).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        item.status.toUpperCase(),
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _getStatusColor(item.status),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.date,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                if (item.notes != null && item.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Note: ${item.notes!}',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  // ---------------- TOP UP CARD (NEW) ----------------
-  Widget _buildTopUpCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Top Up Options",
-            style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
+// Models
+class TopUpHistory {
+  final String id;
+  final double amount;
+  final int validDays;
+  final String status; // 'pending', 'approved', 'rejected'
+  final String date;
+  final String? notes;
 
-          Row(
-            children: [
-              Expanded(
-                child: _buildTrendCard(Icons.phone_android, "Mobile Money"),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTrendCard(Icons.credit_card, "Card Top-Up"),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+  TopUpHistory({
+    required this.id,
+    required this.amount,
+    required this.validDays,
+    required this.status,
+    required this.date,
+    this.notes,
+  });
 
-          Row(
-            children: [
-              Expanded(child: _buildTrendCard(Icons.store, "Bank Deposit")),
-              const SizedBox(width: 12),
-              Expanded(child: _buildTrendCard(Icons.qr_code, "QR Top-Up")),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------- TREND CARD (NEW) ----------------
-  Widget _buildTrendCard(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 30, color: const Color(0xFF667eea)),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------- PAYOUT HISTORY ----------------
-  Widget _buildPayoutHistory() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Payout History',
-          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 16),
-        ..._transactions.map(_buildTransactionItem).toList(),
-      ],
-    );
-  }
-
-  Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: transaction['type'] == 'payout'
-                ? Colors.orange.shade100
-                : Colors.green.shade100,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            transaction['type'] == 'payout'
-                ? Icons.payment
-                : Icons.delivery_dining,
-            color: transaction['type'] == 'payout'
-                ? Colors.orange
-                : Colors.green,
-          ),
-        ),
-        title: Text(
-          transaction['description'],
-          style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500),
-        ),
-        subtitle: Text(
-          '${transaction['date']}${transaction['time'] != null ? ' • ${transaction['time']}' : ''}',
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '\$${transaction['amount']}',
-              style: GoogleFonts.inter(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: transaction['type'] == 'payout'
-                    ? Colors.orange
-                    : Colors.green,
-              ),
-            ),
-            Text(
-              transaction['type'] == 'payout' ? 'Payout' : 'Earning',
-              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------- PAYOUT REQUEST ----------------
-  void _requestPayout() {
-    if (_balance < 10.0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Minimum payout amount is \$10.00'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Request Payout'),
-        content: Text(
-          'Request payout of \$$_balance to your registered bank account?',
-          style: GoogleFonts.inter(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _processPayout();
-            },
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _processPayout() {
-    setState(() {
-      _transactions.insert(0, {
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'date': '2024-01-16',
-        'amount': _balance,
-        'type': 'payout',
-        'description': 'Payout request',
-        'status': 'pending',
-      });
-      _balance = 0.0;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Payout request submitted successfully!'),
-        backgroundColor: Colors.green,
-      ),
+  factory TopUpHistory.fromJson(Map<String, dynamic> json) {
+    return TopUpHistory(
+      id: json['id'] ?? '',
+      amount: (json['amount'] ?? 0.0).toDouble(),
+      validDays: json['valid_days'] ?? 0,
+      status: json['status'] ?? 'pending',
+      date: json['date'] ?? '',
+      notes: json['notes'],
     );
   }
 }
