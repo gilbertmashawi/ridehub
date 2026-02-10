@@ -81,37 +81,55 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     super.dispose();
   }
 
-  // Initialize audio player and load custom MP3 sound
+  // // Initialize audio player and load custom MP3 sound
+  // Future<void> _initializeAudioPlayer() async {
+  //   _audioPlayer = AudioPlayer();
+
+  //   try {
+  //     // Set audio player configuration
+  //     await _audioPlayer?.setVolume(1.0); // 80% volume
+  //     await _audioPlayer?.setReleaseMode(ReleaseMode.stop); // Stop when done
+
+  //     // IMPORTANT: Load your custom MP3 sound from assets
+  //     // Make sure to add the sound file to your pubspec.yaml
+  //     // Example: assets/sounds/job_notification.mp3
+
+  //     // You can use different loading methods:
+  //     // Method 1: From assets (recommended for mobile apps)
+  //     // await _audioPlayer?.setSource(AssetSource('sounds/job_notification.mp3'));
+
+  //     // Method 2: From network URL (for web or if sound is hosted online)
+  //     // await _audioPlayer?.setSource(UrlSource('https://yourdomain.com/sounds/job_notification.mp3'));
+
+  //     // Method 3: From app's local filesystem (for downloaded sounds)
+  //     // await _audioPlayer?.setSource(DeviceFileSource('/path/to/sound.mp3'));
+
+  //     // For now, let's use assets. Uncomment and modify the path to your actual sound file:
+  //     // await _audioPlayer?.setSource(AssetSource('sounds/notification.mp3'));
+
+  //     // Or use this simpler approach:
+  //     // Load the sound when needed instead of pre-loading
+  //     _isSoundLoaded = true;
+  //   } catch (e) {
+  //     debugPrint('Audio initialization error: $e');
+  //     _isSoundLoaded = false;
+  //   }
+  // }
+
   Future<void> _initializeAudioPlayer() async {
     _audioPlayer = AudioPlayer();
 
     try {
-      // Set audio player configuration
-      await _audioPlayer?.setVolume(1.0); // 80% volume
-      await _audioPlayer?.setReleaseMode(ReleaseMode.stop); // Stop when done
+      await _audioPlayer!.setVolume(1.0);
+      await _audioPlayer!.setReleaseMode(ReleaseMode.stop);
 
-      // IMPORTANT: Load your custom MP3 sound from assets
-      // Make sure to add the sound file to your pubspec.yaml
-      // Example: assets/sounds/job_notification.mp3
+      // Preload the sound
+      await _audioPlayer!.setSource(AssetSource('sounds/notifications.mp3'));
 
-      // You can use different loading methods:
-      // Method 1: From assets (recommended for mobile apps)
-      // await _audioPlayer?.setSource(AssetSource('sounds/job_notification.mp3'));
-
-      // Method 2: From network URL (for web or if sound is hosted online)
-      // await _audioPlayer?.setSource(UrlSource('https://yourdomain.com/sounds/job_notification.mp3'));
-
-      // Method 3: From app's local filesystem (for downloaded sounds)
-      // await _audioPlayer?.setSource(DeviceFileSource('/path/to/sound.mp3'));
-
-      // For now, let's use assets. Uncomment and modify the path to your actual sound file:
-      // await _audioPlayer?.setSource(AssetSource('sounds/notification.mp3'));
-
-      // Or use this simpler approach:
-      // Load the sound when needed instead of pre-loading
       _isSoundLoaded = true;
+      debugPrint('✅ Notification sound loaded');
     } catch (e) {
-      debugPrint('Audio initialization error: $e');
+      debugPrint('❌ Audio initialization error: $e');
       _isSoundLoaded = false;
     }
   }
@@ -147,48 +165,60 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   // Play your custom MP3 sound
+  // Future<void> _playCustomMP3Sound() async {
+  //   try {
+  //     // Method 1: Play from assets (recommended)
+  //     // Make sure to add your sound file to pubspec.yaml
+  //     // assets:
+  //     //   - assets/sounds/notification.mp3
+  //     /*
+  //     await _audioPlayer?.play(AssetSource('sounds/notification.mp3'));
+  //     */
+
+  //     // Method 2: Play from network URL
+  //     // Uncomment and replace with your actual sound URL
+  //     /*
+  //     await _audioPlayer?.play(UrlSource('https://chareta.com/riderhub/sounds/notification.mp3'));
+  //     */
+
+  //     // Method 3: Simple system sound (fallback)
+  //     SystemSound.play(SystemSoundType.click);
+
+  //     // Method 4: Using a different approach with cache
+  //     // This is useful if you want to ensure the sound plays reliably
+  //     if (!_isSoundLoaded) {
+  //       // Try to load the sound
+  //       try {
+  //         // Load from assets
+  //         // await _audioPlayer?.setSource(AssetSource('sounds/notification.mp3'));
+  //         _isSoundLoaded = true;
+  //       } catch (e) {
+  //         debugPrint('Failed to load sound: $e');
+  //       }
+  //     }
+
+  //     if (_isSoundLoaded) {
+  //       // If loaded, play it
+  //       await _audioPlayer?.resume(); // Or use play() if you've set the source
+  //     } else {
+  //       // Fallback
+  //       SystemSound.play(SystemSoundType.click);
+  //     }
+  //   } catch (e) {
+  //     debugPrint('MP3 sound play error: $e');
+  //     // Ultimate fallback
+  //     SystemSound.play(SystemSoundType.click);
+  //   }
+  // }
+
   Future<void> _playCustomMP3Sound() async {
+    if (_audioPlayer == null || !_isSoundLoaded) return;
+
     try {
-      // Method 1: Play from assets (recommended)
-      // Make sure to add your sound file to pubspec.yaml
-      // assets:
-      //   - assets/sounds/notification.mp3
-      /*
-      await _audioPlayer?.play(AssetSource('sounds/notification.mp3'));
-      */
-
-      // Method 2: Play from network URL
-      // Uncomment and replace with your actual sound URL
-      /*
-      await _audioPlayer?.play(UrlSource('https://chareta.com/riderhub/sounds/notification.mp3'));
-      */
-
-      // Method 3: Simple system sound (fallback)
-      SystemSound.play(SystemSoundType.click);
-
-      // Method 4: Using a different approach with cache
-      // This is useful if you want to ensure the sound plays reliably
-      if (!_isSoundLoaded) {
-        // Try to load the sound
-        try {
-          // Load from assets
-          // await _audioPlayer?.setSource(AssetSource('sounds/notification.mp3'));
-          _isSoundLoaded = true;
-        } catch (e) {
-          debugPrint('Failed to load sound: $e');
-        }
-      }
-
-      if (_isSoundLoaded) {
-        // If loaded, play it
-        await _audioPlayer?.resume(); // Or use play() if you've set the source
-      } else {
-        // Fallback
-        SystemSound.play(SystemSoundType.click);
-      }
+      await _audioPlayer!.stop(); // restart if already playing
+      await _audioPlayer!.resume(); // play the preloaded MP3
     } catch (e) {
-      debugPrint('MP3 sound play error: $e');
-      // Ultimate fallback
+      debugPrint('❌ MP3 play error: $e');
       SystemSound.play(SystemSoundType.click);
     }
   }
