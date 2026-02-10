@@ -1,6 +1,5 @@
 // Production-Ready SendRequestScreen with improved location UI
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -28,6 +27,10 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
   final TextEditingController _pickupSearchController = TextEditingController();
   final TextEditingController _dropoffSearchController =
       TextEditingController();
+  final TextEditingController _pickupAddressController =
+      TextEditingController(); // New: Pickup Address
+  final TextEditingController _dropoffNoteController =
+      TextEditingController(); // New: Dropoff Note
 
   // Map variables
   GoogleMapController? _mapController;
@@ -71,7 +74,7 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
   @override
   void initState() {
     super.initState();
-    _getCurrentLocationForPickup();
+    // Removed automatic _getCurrentLocationForPickup() to allow manual selection
 
     // Add listeners for focus changes
     _pickupFocusNode.addListener(() {
@@ -132,6 +135,8 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
     _pickupSearchController.dispose();
     _dropoffSearchController.dispose();
     _suggestedFareController.dispose();
+    _pickupAddressController.dispose(); // New dispose
+    _dropoffNoteController.dispose(); // New dispose
     _pickupFocusNode.dispose();
     _dropoffFocusNode.dispose();
     _scrollController.dispose();
@@ -146,7 +151,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         _showSnackBar('Location services are disabled. Please enable them.');
         return;
       }
-
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -155,23 +159,18 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
           return;
         }
       }
-
       if (permission == LocationPermission.deniedForever) {
         _showSnackBar('Location permissions are permanently denied.');
         return;
       }
-
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-
       setState(() {
         _pickupPosition = LatLng(position.latitude, position.longitude);
       });
-
       // Reverse geocode to get address
       await _reverseGeocode(_pickupPosition!, true);
-
       if (_mapController != null) {
         _mapController!.animateCamera(
           CameraUpdate.newLatLngZoom(_pickupPosition!, 15),
@@ -184,10 +183,8 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
 
   Future<void> _searchPlaces(String query, bool isPickup) async {
     debugPrint('_searchPlaces called: query="$query", isPickup=$isPickup');
-
     // Cancel previous debounce timer
     _searchDebounce?.cancel();
-
     if (query.length < 3) {
       setState(() {
         if (isPickup) {
@@ -200,7 +197,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       });
       return;
     }
-
     setState(() {
       if (isPickup) {
         _showPickupSuggestions = true;
@@ -208,7 +204,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         _showDropoffSuggestions = true;
       }
     });
-
     // Debounce search to avoid too many API calls
     _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       await _performSearch(query, isPickup);
@@ -219,11 +214,9 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
     try {
       final String apiUrl =
           'https://maps.googleapis.com/maps/api/place/autocomplete/json';
-
       // Create location bias string
       String locationBias = '';
       LatLng? biasLocation;
-
       // Use appropriate bias location
       if (isPickup && _pickupPosition != null) {
         biasLocation = _pickupPosition;
@@ -232,26 +225,19 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       } else if (_pickupPosition != null) {
         biasLocation = _pickupPosition;
       }
-
       if (biasLocation != null) {
         locationBias =
             '&location=${biasLocation.latitude},${biasLocation.longitude}&radius=50000';
       }
-
       final String url =
           '$apiUrl?input=$query&key=$_googlePlacesApiKey$locationBias&components=country:zw';
-
       debugPrint('🔍 Searching places for: $query');
-
       final response = await http.get(Uri.parse(url));
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         debugPrint('API Response: ${data['status']}');
-
         if (data['status'] == 'OK') {
           List<Map<String, dynamic>> suggestions = [];
-
           // Get suggestions first (without details)
           for (var prediction in data['predictions']) {
             suggestions.add({
@@ -262,7 +248,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
               'lng': null,
             });
           }
-
           setState(() {
             if (isPickup) {
               _pickupSuggestions = suggestions;
@@ -271,7 +256,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
             }
             _isLoadingSuggestions = false;
           });
-
           // Get coordinates for first 3 suggestions (optimization)
           for (int i = 0; i < suggestions.length && i < 3; i++) {
             final placeDetails = await _getPlaceDetails(
@@ -311,7 +295,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
     debugPrint(
       '_searchWithOpenStreetMap called: query="$query", isPickup=$isPickup',
     );
-
     if (query.length < 3) {
       setState(() {
         if (isPickup) {
@@ -324,35 +307,27 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       });
       return;
     }
-
     setState(() {
       _isLoadingSuggestions = true;
     });
-
     try {
       final String apiUrl = 'https://nominatim.openstreetmap.org/search';
       final String url =
           '$apiUrl?format=json&q=${Uri.encodeComponent(query)}&countrycodes=zw&limit=10&addressdetails=1';
-
       debugPrint('🌍 OpenStreetMap search URL: $url');
-
       final response = await http.get(
         Uri.parse(url),
         headers: {'User-Agent': 'RiderHubApp/1.0'},
       );
-
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         List<Map<String, dynamic>> suggestions = [];
-
         for (var place in data) {
           String displayName = place['display_name'];
-
           // Truncate very long display names
           if (displayName.length > 100) {
             displayName = displayName.substring(0, 100) + '...';
           }
-
           suggestions.add({
             'description': displayName,
             'lat': double.parse(place['lat']),
@@ -362,7 +337,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
             'importance': place['importance'] ?? 0.0,
           });
         }
-
         setState(() {
           if (isPickup) {
             _pickupSuggestions = suggestions;
@@ -373,7 +347,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
           }
           _isLoadingSuggestions = false;
         });
-
         debugPrint('✅ Found ${suggestions.length} suggestions');
       } else {
         debugPrint('❌ OpenStreetMap error: ${response.statusCode}');
@@ -400,12 +373,9 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
           'https://maps.googleapis.com/maps/api/place/details/json';
       final String url =
           '$apiUrl?place_id=$placeId&key=$_googlePlacesApiKey&fields=geometry';
-
       final response = await http.get(Uri.parse(url));
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
         if (data['status'] == 'OK') {
           final location = data['result']['geometry']['location'];
           return {'lat': location['lat'], 'lng': location['lng']};
@@ -423,15 +393,11 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       final String apiUrl = 'https://maps.googleapis.com/maps/api/geocode/json';
       final String url =
           '$apiUrl?latlng=${position.latitude},${position.longitude}&key=$_googleGeocodingApiKey';
-
       final response = await http.get(Uri.parse(url));
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
         if (data['status'] == 'OK' && data['results'].isNotEmpty) {
           String address = data['results'][0]['formatted_address'];
-
           if (isPickup) {
             _pickupSearchController.text = address;
           } else {
@@ -441,7 +407,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
           // Fallback to coordinates
           String address =
               '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
-
           if (isPickup) {
             _pickupSearchController.text = address;
           } else {
@@ -454,7 +419,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       // Fallback to coordinates
       String address =
           '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
-
       if (isPickup) {
         _pickupSearchController.text = address;
       } else {
@@ -468,16 +432,12 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       final String apiUrl = 'https://maps.googleapis.com/maps/api/geocode/json';
       final String url =
           '$apiUrl?address=${Uri.encodeComponent(address)}&key=$_googleGeocodingApiKey';
-
       final response = await http.get(Uri.parse(url));
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
         if (data['status'] == 'OK' && data['results'].isNotEmpty) {
           final location = data['results'][0]['geometry']['location'];
           final position = LatLng(location['lat'], location['lng']);
-
           setState(() {
             if (isPickup) {
               _pickupPosition = position;
@@ -485,7 +445,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
               _dropoffPosition = position;
             }
           });
-
           if (_mapController != null) {
             _mapController!.animateCamera(
               CameraUpdate.newLatLngZoom(position, 15),
@@ -502,11 +461,9 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
     final lat = suggestion['lat'];
     final lng = suggestion['lng'];
     final address = suggestion['description'];
-
     // Check if we have coordinates (OpenStreetMap provides them directly)
     if (lat != null && lng != null) {
       final position = LatLng(lat, lng);
-
       setState(() {
         if (isPickup) {
           _pickupPosition = position;
@@ -522,7 +479,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
           _isLocationSearchFloating = false;
         }
       });
-
       // Move camera to selected location
       if (_mapController != null) {
         _mapController!.animateCamera(CameraUpdate.newLatLngZoom(position, 15));
@@ -544,7 +500,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         }
       });
     }
-
     // Clear focus
     if (isPickup) {
       _pickupFocusNode.unfocus();
@@ -558,10 +513,8 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-
       final latLng = LatLng(position.latitude, position.longitude);
       await _reverseGeocode(latLng, isPickup);
-
       setState(() {
         if (isPickup) {
           _pickupPosition = latLng;
@@ -574,7 +527,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         }
         _isLocationSearchFloating = false;
       });
-
       if (_mapController != null) {
         _mapController!.animateCamera(CameraUpdate.newLatLngZoom(latLng, 15));
       }
@@ -587,7 +539,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
     // Determine which location to update based on which field was last focused
     final pickupHasFocus = _pickupFocusNode.hasFocus;
     final dropoffHasFocus = _dropoffFocusNode.hasFocus;
-
     if (pickupHasFocus || (!dropoffHasFocus && _pickupPosition == null)) {
       // Update pickup
       _pickupFocusNode.unfocus();
@@ -607,11 +558,9 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       });
       _reverseGeocode(position, false);
     }
-
     setState(() {
       _isLocationSearchFloating = false;
     });
-
     if (_mapController != null) {
       _mapController!.animateCamera(CameraUpdate.newLatLng(position));
     }
@@ -629,18 +578,15 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
 
   Future<void> _submitRequest() async {
     debugPrint('=== SUBMIT REQUEST STARTED ===');
-
     if (_formKey.currentState!.validate() &&
         _pickupPosition != null &&
         _dropoffPosition != null &&
         _parcelSize != null &&
         _paymentMethod != null) {
       debugPrint('✅ All validations passed');
-
       setState(() {
         _isLoading = true;
       });
-
       try {
         final sessionId = await _getSessionId();
         if (sessionId == null) {
@@ -650,16 +596,13 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
           });
           return;
         }
-
         // Create multipart request
         var request = http.MultipartRequest(
           'POST',
           Uri.parse('https://chareta.com/riderhub/api/api.php?action=requests'),
         );
-
         // Add headers
         request.headers['X-Session-Id'] = sessionId;
-
         // Add form fields
         request.fields['pickup_lat'] = _pickupPosition!.latitude.toString();
         request.fields['pickup_lng'] = _pickupPosition!.longitude.toString();
@@ -670,6 +613,10 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
             ? '0'
             : _suggestedFareController.text;
         request.fields['payment_method'] = _paymentMethod!.toLowerCase();
+        request.fields['pickup_address'] =
+            _pickupAddressController.text; // New field
+        request.fields['dropoff_note'] =
+            _dropoffNoteController.text; // New field
 
         // Add parcel photo if available
         if (_parcelPhoto != null) {
@@ -681,7 +628,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
             } else if (extension == 'gif') {
               contentType = 'image/gif';
             }
-
             request.files.add(
               await http.MultipartFile.fromPath(
                 'parcel_photo',
@@ -695,14 +641,11 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
             debugPrint('Error adding photo: $e');
           }
         }
-
         // Send request
         final streamedResponse = await request.send();
         final response = await http.Response.fromStream(streamedResponse);
-
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
-
           if (responseData.containsKey('error')) {
             _showSnackBar('Request failed: ${responseData['error']}');
           } else if (responseData.containsKey('request_id')) {
@@ -741,7 +684,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
       if (_paymentMethod == null) errorMessage += '• Select payment method\n';
       if (!_formKey.currentState!.validate())
         errorMessage += '• Fix form errors';
-
       _showSnackBar(errorMessage);
     }
   }
@@ -882,7 +824,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                                   }
                                   _isLoadingSuggestions = true;
                                 });
-
                                 if (_googlePlacesApiKey.isEmpty ||
                                     _googlePlacesApiKey ==
                                         'AIzaSyAEqhpYB-uOW1kwVpyavEEM2V1hPHdCb8g') {
@@ -1082,7 +1023,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
 
   Widget _buildCompactSuggestionsList(bool isPickup) {
     final suggestions = isPickup ? _pickupSuggestions : _dropoffSuggestions;
-
     if (_isLoadingSuggestions) {
       return Container(
         padding: const EdgeInsets.all(12),
@@ -1099,7 +1039,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         ),
       );
     }
-
     if (suggestions.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(12),
@@ -1113,7 +1052,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         ),
       );
     }
-
     return Container(
       constraints: const BoxConstraints(maxHeight: 200),
       decoration: BoxDecoration(
@@ -1127,10 +1065,8 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
         itemBuilder: (context, index) {
           final suggestion = suggestions[index];
           final address = suggestion['description'];
-
           String mainText = address;
           String secondaryText = '';
-
           if (address.contains(',')) {
             final parts = address.split(',');
             if (parts.length > 1) {
@@ -1138,7 +1074,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
               secondaryText = parts.sublist(1).take(2).join(',');
             }
           }
-
           return ListTile(
             dense: true,
             leading: Icon(
@@ -1185,6 +1120,7 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                   CameraUpdate.newLatLngZoom(_pickupPosition!, 17),
                 );
               } else {
+                // If pickup not set, focus on pickup input
                 _pickupFocusNode.requestFocus();
               }
             },
@@ -1203,6 +1139,7 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                   CameraUpdate.newLatLngZoom(_dropoffPosition!, 17),
                 );
               } else {
+                // If dropoff not set, focus on dropoff input
                 _dropoffFocusNode.requestFocus();
               }
             },
@@ -1259,7 +1196,40 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-
+              // Pickup Address (New Required Field)
+              Text(
+                'Pickup Address *',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _pickupAddressController,
+                decoration: InputDecoration(
+                  hintText: 'Enter detailed pickup address',
+                  prefixIcon: const Icon(Icons.home),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter pickup address';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
               // Parcel Size
               Text(
                 'Parcel Size *',
@@ -1286,9 +1256,7 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
-
               // Suggested Fare
               Text(
                 'Suggested Fare (USD) *',
@@ -1327,9 +1295,7 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 20),
-
               // Payment Method
               Text(
                 'Payment Method *',
@@ -1392,9 +1358,41 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 20),
-
+              // Dropoff Note (New Required Field)
+              Text(
+                'Dropoff Note *',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _dropoffNoteController,
+                decoration: InputDecoration(
+                  hintText: 'Enter notes for dropoff (e.g., Leave at gate)',
+                  prefixIcon: const Icon(Icons.note),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter dropoff note';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
               // Optional Photo Upload
               Card(
                 shape: RoundedRectangleBorder(
@@ -1507,9 +1505,7 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 24),
-
               // Submit Button
               SizedBox(
                 width: double.infinity,
@@ -1551,7 +1547,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                         ),
                 ),
               ),
-
               const SizedBox(height: 16),
             ],
           ),
@@ -1612,7 +1607,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
     final screenHeight = MediaQuery.of(context).size.height;
     final appBarHeight = 56.0;
     final availableHeight = screenHeight - appBarHeight;
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -1650,7 +1644,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                 ],
               ),
             ),
-
             // Main Content Area
             Expanded(
               child: Stack(
@@ -1660,7 +1653,8 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                     height: availableHeight,
                     child: GoogleMap(
                       initialCameraPosition: CameraPosition(
-                        target: _pickupPosition ?? _harare,
+                        target:
+                            _harare, // Default to Harare since no auto-current
                         zoom: 15,
                       ),
                       markers: {
@@ -1710,7 +1704,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                       tiltGesturesEnabled: false,
                     ),
                   ),
-
                   // Location Indicator Bar (Top) - Fixed position
                   Positioned(
                     top: 16,
@@ -1718,7 +1711,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                     right: 16,
                     child: _buildLocationIndicatorBar(),
                   ),
-
                   // Floating Location Cards - ALWAYS VISIBLE WHEN NEEDED
                   Positioned(
                     top: 90,
@@ -1741,12 +1733,10 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                             isExpanded:
                                 _isPickupExpanded || _pickupPosition == null,
                           ),
-
                         // Spacing between cards
                         if ((_pickupPosition == null || _isPickupExpanded) &&
                             (_dropoffPosition == null || _isDropoffExpanded))
                           const SizedBox(height: 4),
-
                         // Dropoff Card - Always visible when not set or expanded
                         if (_dropoffPosition == null || _isDropoffExpanded)
                           _buildFloatingLocationCard(
@@ -1765,10 +1755,8 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                       ],
                     ),
                   ),
-
                   // Mini Location Controls (Right side) - Optional, can be removed
                   _buildMiniLocationControls(),
-
                   // Current Location Button
                   Positioned(
                     bottom: 160,
@@ -1780,7 +1768,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                       child: const Icon(Icons.my_location, color: Colors.blue),
                     ),
                   ),
-
                   // Next Button
                   if (_pickupPosition != null &&
                       _dropoffPosition != null &&
@@ -1825,7 +1812,6 @@ class _SendRequestScreenState extends State<SendRequestScreen> {
                 ],
               ),
             ),
-
             // Details Form (Sliding up) - Only when showDetailsForm is true
             if (_showDetailsForm)
               Expanded(

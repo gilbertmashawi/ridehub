@@ -416,29 +416,78 @@ class _JobListScreenState extends State<JobListScreen> {
   }
 
   void _showJobDetails(Map<String, dynamic> job) {
+    // Extract values with safe fallbacks
+    final suggestedFare = (job['fare'] as num?)?.toDouble() ?? 0.0;
+    final pickupAddress = job['pickup_address'] as String? ?? 'Not provided';
+    final dropoffNote =
+        job['dropoff_note'] as String? ?? 'No special instructions';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
           padding: const EdgeInsets.all(20),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Job Title
               Text(
-                job['title'],
+                job['title'] ?? '${job['parcel_size'] ?? 'Package'} Delivery',
                 style: GoogleFonts.inter(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 16),
-              _buildDetailRow('Parcel Size', job['parcel_size']),
-              // _buildDetailRow('Distance', job['distance']),
-              _buildDetailRow('Payment', job['payment_method']),
-              _buildDetailRow('Type', job['type']),
-              _buildDetailRow('Created', _formatDate(job['created_at'])),
+
+              // Pickup Address
+              _buildDetailRowWithIcon(
+                icon: Icons.location_on,
+                iconColor: Colors.green,
+                label: 'Pickup Address',
+                value: pickupAddress,
+              ),
+
               const SizedBox(height: 16),
+
+              // Dropoff Instructions / Note
+              _buildDetailRowWithIcon(
+                icon: Icons.note_alt,
+                iconColor: Colors.orange,
+                label: 'Dropoff Instructions',
+                value: dropoffNote,
+              ),
+
+              const SizedBox(height: 16),
+
+              // Other details
+              _buildDetailRow('Parcel Size', job['parcel_size'] ?? 'N/A'),
+              _buildDetailRow('Payment Method', job['payment_method'] ?? 'N/A'),
+              _buildDetailRow('Type', job['type'] ?? 'N/A'),
+              _buildDetailRow('Created', _formatDate(job['created_at'] ?? '')),
+              const SizedBox(height: 16),
+
+              // Fare highlight
               Row(
                 children: [
                   Expanded(
@@ -453,7 +502,7 @@ class _JobListScreenState extends State<JobListScreen> {
                           ),
                         ),
                         Text(
-                          '\$${job['fare'].toStringAsFixed(2)}',
+                          '\$${suggestedFare.toStringAsFixed(2)}',
                           style: GoogleFonts.inter(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -465,48 +514,93 @@ class _JobListScreenState extends State<JobListScreen> {
                   ),
                 ],
               ),
-              // const SizedBox(height: 20),
-              // Row(
-              //   children: [
-              //     Expanded(
-              //       child: ElevatedButton(
-              //         onPressed: () {
-              //           Navigator.pop(context);
-              //           _showRouteOnMap(job);
-              //         },
-              //         style: ElevatedButton.styleFrom(
-              //           backgroundColor: const Color(0xFF667eea),
-              //           padding: const EdgeInsets.symmetric(vertical: 12),
-              //         ),
-              //         child: const Text(
-              //           'View Route',
-              //           style: TextStyle(color: Colors.white),
-              //         ),
-              //       ),
-              //     ),
-              //     const SizedBox(width: 12),
-              //     Expanded(
-              //       child: ElevatedButton(
-              //         onPressed: () {
-              //           Navigator.pop(context);
-              //           _acceptJob(job, job['fare']);
-              //         },
-              //         style: ElevatedButton.styleFrom(
-              //           backgroundColor: Colors.green,
-              //           padding: const EdgeInsets.symmetric(vertical: 12),
-              //         ),
-              //         child: Text(
-              //           'Accept \$${job['fare'].toStringAsFixed(2)}',
-              //           style: const TextStyle(color: Colors.white),
-              //         ),
-              //       ),
-              //     ),
-              //   ],
-              // ),
+
+              const SizedBox(height: 24),
+
+              // Action buttons (you can uncomment / adjust as needed)
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _acceptJob(job, suggestedFare);
+                      },
+                      icon: const Icon(Icons.check_circle, size: 18),
+                      label: Text(
+                        'Accept \$${suggestedFare.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        // You can add bid logic here if needed
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Bid feature coming soon'),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.gavel, size: 18),
+                      label: const Text('Bid Fare'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
             ],
           ),
         );
       },
+    );
+  }
+
+  // Helper widget to show field with icon
+  Widget _buildDetailRowWithIcon({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: iconColor, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: GoogleFonts.inter(fontSize: 14),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

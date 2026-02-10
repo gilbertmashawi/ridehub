@@ -544,6 +544,12 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     final suggestedFare = (job['suggested_fare'] as num?)?.toDouble() ?? 0.0;
     final distance = (job['distance'] as num?)?.toDouble() ?? 0.0;
 
+    // Extract new fields (with fallback)
+    final pickupAddress = job['pickup_address'] as String? ?? 'Not provided';
+    final dropoffNote =
+        job['dropoff_note'] as String? ?? 'No special instructions';
+
+    var distanceInMeters = 0;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -563,6 +569,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Drag handle
             Center(
               child: Container(
                 width: 40,
@@ -574,6 +581,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Title
             Text(
               job['parcel_size'] ?? 'Delivery Job',
               style: GoogleFonts.inter(
@@ -582,11 +591,95 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Text('Customer Offer: \$${suggestedFare.toStringAsFixed(2)}'),
-            Text('Distance: ${distance.toStringAsFixed(1)} km away'),
-            Text('Payment: ${job['payment_method'] ?? 'Not specified'}'),
+
+            // Fare & Distance
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Offer: \$${suggestedFare.toStringAsFixed(2)}',
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  "eligible",
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Payment: ${job['payment_method']?.toString().toUpperCase() ?? 'Not specified'}',
+              style: GoogleFonts.inter(fontSize: 14, color: Colors.grey[700]),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Pickup Address
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.location_on, color: Colors.green, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pickup Address',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        pickupAddress,
+                        style: GoogleFonts.inter(fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Dropoff Note / Instructions
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.note_alt, color: Colors.orange, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Dropoff Instructions',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(dropoffNote, style: GoogleFonts.inter(fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Parcel Photo (if exists)
             if (job['parcel_photo'] != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Image.network(
@@ -596,7 +689,6 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                   fit: BoxFit.cover,
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) return child;
-
                     return Container(
                       height: 180,
                       width: double.infinity,
@@ -618,7 +710,10 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                 ),
               ),
             ],
+
             const SizedBox(height: 24),
+
+            // Action buttons
             Row(
               children: [
                 Expanded(
