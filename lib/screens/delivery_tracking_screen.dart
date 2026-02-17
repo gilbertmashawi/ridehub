@@ -29,10 +29,8 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   GoogleMapController? _mapController;
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
-  String _currentStatus =
-      'assigned'; // assigned, picked_up, in_transit, delivered
+  String _currentStatus = 'assigned'; // assigned, picked_up, delivered
   int _unreadMessages = 0;
-  Timer? _locationTimer;
   Timer? _chatTimer;
 
   // Real-time location tracking
@@ -43,12 +41,13 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   // Distance tracking
   double _distanceToDropoff = 0.0;
   double _totalDistance = 0.0;
-  List<LatLng> _routePoints = [];
 
   // Delivery confirmation
   File? _deliveryProofImage;
   bool _isWithinDeliveryRange = false;
-  final double _deliveryRangeMeters = 100.0; // 0.1km = 100m
+  final double _deliveryRangeMeters = 100.0; // 100 meters
+
+  bool _isLoadingAction = false;
 
   @override
   void initState() {
@@ -61,7 +60,6 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
 
   @override
   void dispose() {
-    _locationTimer?.cancel();
     _chatTimer?.cancel();
     _positionStream?.cancel();
     super.dispose();
@@ -69,18 +67,14 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
 
   void _initializeMap() {
     final pickup = LatLng(
-      widget.jobDetails['pickup_lat'] ?? 0.0,
-      widget.jobDetails['pickup_lng'] ?? 0.0,
+      widget.jobDetails['pickup_lat']?.toDouble() ?? 0.0,
+      widget.jobDetails['pickup_lng']?.toDouble() ?? 0.0,
     );
     final dropoff = LatLng(
-      widget.jobDetails['dropoff_lat'] ?? 0.0,
-      widget.jobDetails['dropoff_lng'] ?? 0.0,
+      widget.jobDetails['dropoff_lat']?.toDouble() ?? 0.0,
+      widget.jobDetails['dropoff_lng']?.toDouble() ?? 0.0,
     );
 
-    // Store for distance calculations
-    _routePoints = [pickup, dropoff];
-
-    // Calculate initial total distance
     _totalDistance = _calculateDistance(
       pickup.latitude,
       pickup.longitude,
@@ -112,66 +106,68 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
         points: [pickup, dropoff],
         color: Colors.blue.withOpacity(0.6),
         width: 4,
-        patterns: [PatternItem.dash(10), PatternItem.gap(10)],
       ),
     );
 
-    // Center map on pickup initially
     _centerMapOnLocation(pickup);
   }
 
   void _startLocationTracking() async {
-    // Request location permission
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return;
-      }
+      if (permission == LocationPermission.denied) return;
     }
 
-    // Start listening to position stream
     _positionStream =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            distanceFilter: 10, // Update every 10 meters
-            timeLimit: Duration(seconds: 30),
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10,
           ),
         ).listen((Position position) {
           _updateRiderLocation(position);
         });
 
-    // Also get initial position
-    Position initialPosition = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-    _updateRiderLocation(initialPosition);
+    // Initial position
+    try {
+      Position initial = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      _updateRiderLocation(initial);
+    } catch (e) {
+      debugPrint("Initial location error: $e");
+    }
   }
 
   void _updateRiderLocation(Position position) async {
     final newLocation = LatLng(position.latitude, position.longitude);
 
-    setState(() async {
+    setState(() {
       _currentRiderLocation = newLocation;
       _lastPosition = position;
 
-      // Update or add rider marker
-      _markers.removeWhere((marker) => marker.markerId.value == 'rider');
+      // Update rider marker
+      _markers.removeWhere((m) => m.markerId.value == 'rider');
       _markers.add(
         Marker(
           markerId: const MarkerId('rider'),
           position: newLocation,
           infoWindow: const InfoWindow(title: 'Your Location'),
-          icon: await _getRiderIcon(),
-          rotation: position.heading ?? 0,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
+          rotation: position.heading,
         ),
       );
 
-      // Calculate distance to dropoff
+      // Distance to dropoff
       final dropoff = LatLng(
-        widget.jobDetails['dropoff_lat'] ?? 0.0,
-        widget.jobDetails['dropoff_lng'] ?? 0.0,
+        widget.jobDetails['dropoff_lat']?.toDouble() ?? 0.0,
+        widget.jobDetails['dropoff_lng']?.toDouble() ?? 0.0,
       );
 
       _distanceToDropoff = _calculateDistance(
@@ -181,24 +177,14 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
         dropoff.longitude,
       );
 
-      // Check if within delivery range
       _isWithinDeliveryRange =
-          _distanceToDropoff * 1000 <= _deliveryRangeMeters;
+          (_distanceToDropoff * 1000) <= _deliveryRangeMeters;
 
-      // Update dropoff marker info
       _updateDropoffMarkerInfo();
     });
 
-    // Send location update to server
+    // Send to server
     await _sendLocationToServer(position);
-
-    // Center map on rider if they're far from center
-    _centerMapOnRiderIfNeeded(newLocation);
-  }
-
-  Future<BitmapDescriptor> _getRiderIcon() async {
-    // You can create a custom icon for the rider
-    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
   }
 
   double _calculateDistance(
@@ -207,71 +193,48 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     double lat2,
     double lon2,
   ) {
-    const double earthRadius = 6371.0; // Earth's radius in kilometers
-
-    double dLat = _toRadians(lat2 - lat1);
-    double dLon = _toRadians(lon2 - lon1);
-
-    double a =
+    const double R = 6371; // km
+    final dLat = _toRadians(lat2 - lat1);
+    final dLon = _toRadians(lon2 - lon1);
+    final a =
         math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_toRadians(lat1)) *
             math.cos(_toRadians(lat2)) *
             math.sin(dLon / 2) *
             math.sin(dLon / 2);
-
-    double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-
-    return earthRadius * c;
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return R * c;
   }
 
-  double _toRadians(double degrees) {
-    return degrees * math.pi / 180;
-  }
+  double _toRadians(double degree) => degree * math.pi / 180;
 
   void _updateDropoffMarkerInfo() {
-    // Find and update dropoff marker
-    final dropoffMarker = _markers.firstWhere(
-      (marker) => marker.markerId.value == 'dropoff',
-      orElse: () => Marker(markerId: const MarkerId('')),
+    final dropoffMarkerIndex = _markers.toList().indexWhere(
+      (m) => m.markerId.value == 'dropoff',
     );
+    if (dropoffMarkerIndex == -1) return;
 
-    if (dropoffMarker.markerId.value == 'dropoff') {
-      _markers.remove(dropoffMarker);
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('dropoff'),
-          position: dropoffMarker.position,
-          infoWindow: InfoWindow(
-            title: 'Dropoff Location',
-            snippet:
-                'Distance: ${_distanceToDropoff.toStringAsFixed(1)} km '
-                '(${(_distanceToDropoff * 1000).toStringAsFixed(0)} m)',
-          ),
-          icon: _isWithinDeliveryRange
-              ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)
-              : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+    final oldMarker = _markers.elementAt(dropoffMarkerIndex);
+    _markers.remove(oldMarker);
+
+    _markers.add(
+      Marker(
+        markerId: const MarkerId('dropoff'),
+        position: oldMarker.position,
+        infoWindow: InfoWindow(
+          title: 'Dropoff Location',
+          snippet:
+              'Distance: ${(_distanceToDropoff * 1000).toStringAsFixed(0)} m',
         ),
-      );
-    }
-  }
-
-  void _centerMapOnRiderIfNeeded(LatLng riderLocation) {
-    if (_mapController != null) {
-      _mapController?.getVisibleRegion().then((visibleRegion) {
-        final bounds = LatLngBounds(
-          southwest: visibleRegion.southwest,
-          northeast: visibleRegion.northeast,
-        );
-
-        if (!bounds.contains(riderLocation)) {
-          _centerMapOnLocation(riderLocation);
-        }
-      });
-    }
+        icon: _isWithinDeliveryRange
+            ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)
+            : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      ),
+    );
   }
 
   void _centerMapOnLocation(LatLng location) {
-    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(location, 15.0));
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(location, 15));
   }
 
   Future<void> _sendLocationToServer(Position position) async {
@@ -280,7 +243,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     if (sessionId == null) return;
 
     try {
-      final response = await http.post(
+      await http.post(
         Uri.parse(
           'https://chareta.com/riderhub/api/api.php?action=update_delivery_location',
         ),
@@ -294,12 +257,8 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
           'lng': position.longitude,
         }),
       );
-
-      if (response.statusCode == 200) {
-        debugPrint('Location updated to server');
-      }
     } catch (e) {
-      debugPrint('Location update error: $e');
+      debugPrint('Location update failed: $e');
     }
   }
 
@@ -326,90 +285,199 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Load assignment status error: $e');
+      debugPrint('Load status error: $e');
     }
   }
 
-  Future<void> _updateStatus(String newStatus, {File? proofImage}) async {
+  Future<void> _markAsPickedUp() async {
+    setState(() => _isLoadingAction = true);
+
     final prefs = await SharedPreferences.getInstance();
     final sessionId = prefs.getString('session_id');
-    if (sessionId == null) return;
+    if (sessionId == null) {
+      setState(() => _isLoadingAction = false);
+      return;
+    }
 
     try {
-      // Create multipart request for image upload
-      var request = http.MultipartRequest(
-        'POST',
+      final response = await http.post(
         Uri.parse(
-          'https://chareta.com/riderhub/api/api.php?action=deliveries_pod',
+          'https://chareta.com/riderhub/api/api.php?action=mark_picked_up',
         ),
+        headers: {
+          'X-Session-Id': sessionId,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'delivery_id': widget.assignmentId}),
       );
 
-      // Add headers
-      request.headers['X-Session-Id'] = sessionId;
+      final data = jsonDecode(response.body);
 
-      // Add fields
-      request.fields['delivery_id'] = widget.assignmentId.toString();
-      request.fields['status'] = newStatus;
-
-      // Add image if provided
-      if (proofImage != null) {
-        request.files.add(
-          await http.MultipartFile.fromPath('photo', proofImage.path),
+      if (response.statusCode == 200 && data['success'] == true) {
+        setState(() {
+          _currentStatus = 'picked_up';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Marked as Picked Up'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['error'] ?? 'Failed'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data['error'] == null) {
-          setState(() => _currentStatus = newStatus);
-
-          if (newStatus == 'delivered') {
-            _showDeliveryCompleteDialog();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Status updated to $newStatus'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: ${data['error']}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
     } catch (e) {
-      debugPrint('Update status error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to update status'),
+          content: Text('Error occurred'),
           backgroundColor: Colors.red,
         ),
       );
     }
+
+    setState(() => _isLoadingAction = false);
   }
 
-  Future<void> _pickDeliveryProofImage() async {
+  Future<void> _pickAndUploadProof() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 85,
-      maxWidth: 800,
+      imageQuality: 80,
+      maxWidth: 900,
     );
 
-    if (pickedFile != null) {
-      setState(() {
-        _deliveryProofImage = File(pickedFile.path);
-      });
+    if (pickedFile == null) return;
+
+    setState(() {
+      _deliveryProofImage = File(pickedFile.path);
+    });
+
+    _showConfirmDeliveryDialog();
+  }
+
+  void _showConfirmDeliveryDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Delivery'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_deliveryProofImage != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  _deliveryProofImage!,
+                  height: 180,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            const SizedBox(height: 16),
+            const Text(
+              'Are you sure you want to mark this delivery as completed?',
+            ),
+            if (!_isWithinDeliveryRange)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  'Warning: You are not very close to the drop-off point (${(_distanceToDropoff * 1000).toStringAsFixed(0)}m)',
+                  style: const TextStyle(color: Colors.orange),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _submitDelivered();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Yes, Delivered'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitDelivered() async {
+    if (_deliveryProofImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Proof photo is required'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
+
+    setState(() => _isLoadingAction = true);
+
+    final prefs = await SharedPreferences.getInstance();
+    final sessionId = prefs.getString('session_id');
+    if (sessionId == null) {
+      setState(() => _isLoadingAction = false);
+      return;
+    }
+
+    try {
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse(
+          'https://chareta.com/riderhub/api/api.php?action=mark_delivered',
+        ),
+      );
+
+      request.headers['X-Session-Id'] = sessionId;
+      request.fields['delivery_id'] = widget.assignmentId.toString();
+
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'proof_photo',
+          _deliveryProofImage!.path,
+        ),
+      );
+
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        setState(() {
+          _currentStatus = 'delivered';
+          _deliveryProofImage = null;
+        });
+
+        _showDeliveryCompleteDialog();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['error'] ?? 'Failed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Delivered error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error completing delivery'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+
+    setState(() => _isLoadingAction = false);
   }
 
   void _showDeliveryCompleteDialog() {
@@ -419,166 +487,24 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.green),
-            SizedBox(width: 10),
-            Text('Delivery Complete!'),
+            Icon(Icons.check_circle, color: Colors.green, size: 32),
+            SizedBox(width: 12),
+            Text('Delivery Completed!'),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('✅ Delivery has been marked as complete.'),
-            const SizedBox(height: 10),
-            Text('Assignment ID: ${widget.assignmentId}'),
-            Text('Fare: \$${widget.jobDetails['fare_amount'] ?? '0.00'}'),
-            const SizedBox(height: 20),
-            const Text(
-              'Thank you for your service! Payment will be processed to your wallet.',
-              style: TextStyle(fontStyle: FontStyle.italic),
-            ),
-          ],
+        content: const Text(
+          'The delivery has been successfully marked as delivered.\n'
+          'Thank you for your service!',
         ),
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.popUntil(context, (route) => route.isFirst);
+              Navigator.pop(context);
+              Navigator.pop(context); // Return to previous screen
             },
-            child: const Text('Return Home'),
+            child: const Text('Done'),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showMarkDeliveredDialog() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-          left: 20,
-          right: 20,
-          top: 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text('Mark Delivery as Complete'),
-            const SizedBox(height: 16),
-            if (!_isWithinDeliveryRange)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning, color: Colors.orange),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'You must be within ${_deliveryRangeMeters}m of the dropoff point.\n'
-                        'Current distance: ${(_distanceToDropoff * 1000).toStringAsFixed(0)}m',
-                        style: const TextStyle(color: Colors.orange),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 20),
-            const Text(
-              'Upload proof of delivery:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: _pickDeliveryProofImage,
-              child: Container(
-                height: 150,
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _deliveryProofImage != null
-                        ? Colors.green
-                        : Colors.grey[300]!,
-                    width: 2,
-                  ),
-                ),
-                child: _deliveryProofImage != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.file(
-                          _deliveryProofImage!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                        ),
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.camera_alt,
-                            size: 50,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Tap to take photo',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                        ],
-                      ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isWithinDeliveryRange && _deliveryProofImage != null
-                    ? () {
-                        Navigator.pop(context);
-                        _updateStatus(
-                          'delivered',
-                          proofImage: _deliveryProofImage,
-                        );
-                      }
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text(
-                  'Confirm Delivery',
-                  style: TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-        ),
       ),
     );
   }
@@ -589,38 +515,33 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     if (sessionId == null) return;
 
     try {
-      final response = await http.get(
+      final res = await http.get(
         Uri.parse(
           'https://chareta.com/riderhub/api/api.php?action=get_messages&delivery_id=${widget.assignmentId}',
         ),
         headers: {'X-Session-Id': sessionId},
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final messages = List<Map<String, dynamic>>.from(
-          data['messages'] ?? [],
-        );
-
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final messages = (data['messages'] as List?) ?? [];
         setState(() {
           _unreadMessages = messages
-              .where(
-                (msg) =>
-                    msg['sender_type'] == 'customer' && msg['is_read'] == 0,
-              )
+              .where((m) => m['sender_type'] == 'customer' && m['is_read'] == 0)
               .length;
         });
       }
     } catch (e) {
-      debugPrint('Fetch unread messages error: $e');
+      debugPrint('Unread messages error: $e');
     }
   }
 
   void _startChatUpdates() {
     _fetchUnreadMessages();
-    _chatTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      _fetchUnreadMessages();
-    });
+    _chatTimer = Timer.periodic(
+      const Duration(seconds: 12),
+      (_) => _fetchUnreadMessages(),
+    );
   }
 
   void _openChat() {
@@ -633,13 +554,19 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
           riderName: null,
         ),
       ),
-    ).then((_) {
-      _fetchUnreadMessages();
-    });
+    ).then((_) => _fetchUnreadMessages());
+  }
+
+  double get _progress {
+    if (_currentStatus == 'delivered') return 1.0;
+    if (_currentStatus == 'picked_up') return 0.5;
+    return 0.0;
   }
 
   @override
   Widget build(BuildContext context) {
+    final progress = _progress;
+
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -659,8 +586,8 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
               IconButton(icon: const Icon(Icons.chat), onPressed: _openChat),
               if (_unreadMessages > 0)
                 Positioned(
-                  right: 8,
-                  top: 8,
+                  right: 6,
+                  top: 6,
                   child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
@@ -668,8 +595,8 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     constraints: const BoxConstraints(
-                      minWidth: 14,
-                      minHeight: 14,
+                      minWidth: 16,
+                      minHeight: 16,
                     ),
                     child: Text(
                       '$_unreadMessages',
@@ -690,8 +617,8 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                 GoogleMap(
                   initialCameraPosition: CameraPosition(
                     target: LatLng(
-                      widget.jobDetails['pickup_lat'] ?? 0.0,
-                      widget.jobDetails['pickup_lng'] ?? 0.0,
+                      widget.jobDetails['pickup_lat']?.toDouble() ?? -17.83,
+                      widget.jobDetails['pickup_lng']?.toDouble() ?? 31.05,
                     ),
                     zoom: 14,
                   ),
@@ -700,36 +627,136 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                   onMapCreated: (controller) => _mapController = controller,
                   myLocationEnabled: true,
                   myLocationButtonEnabled: false,
-                  compassEnabled: true,
                   zoomControlsEnabled: false,
                 ),
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: FloatingActionButton(
-                    mini: true,
-                    onPressed: () {
-                      if (_currentRiderLocation != null) {
-                        _centerMapOnLocation(_currentRiderLocation!);
-                      }
-                    },
-                    child: const Icon(Icons.my_location),
+                if (_currentRiderLocation != null)
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: FloatingActionButton(
+                      mini: true,
+                      backgroundColor: Colors.white,
+                      onPressed: () =>
+                          _centerMapOnLocation(_currentRiderLocation!),
+                      child: const Icon(Icons.my_location, color: Colors.blue),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.white,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, -3),
+                ),
+              ],
+            ),
             child: Column(
               children: [
-                _buildStatusStep(),
-                const SizedBox(height: 16),
+                // Progress bar
+                Row(
+                  children: [
+                    Text(
+                      _currentStatus == 'delivered'
+                          ? 'Delivered'
+                          : _currentStatus == 'picked_up'
+                          ? 'Picked Up'
+                          : 'Assigned',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${(progress * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(color: Colors.blue),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: Colors.grey[300],
+                  color: progress >= 1.0 ? Colors.green : Colors.blue,
+                  minHeight: 10,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                const SizedBox(height: 20),
+
+                // Action buttons
+                if (_currentStatus == 'assigned')
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.local_shipping),
+                      label: const Text('Picked Up'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: _isLoadingAction ? null : _markAsPickedUp,
+                    ),
+                  ),
+
+                if (_currentStatus == 'picked_up') ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Upload Proof & Mark Delivered'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isWithinDeliveryRange
+                            ? Colors.green
+                            : Colors.grey,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: _isLoadingAction || !_isWithinDeliveryRange
+                          ? null
+                          : _pickAndUploadProof,
+                    ),
+                  ),
+                  if (!_isWithinDeliveryRange)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'You must be within 100m of drop-off to complete delivery',
+                        style: TextStyle(
+                          color: Colors.orange[800],
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                ],
+
+                if (_currentStatus == 'delivered')
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green, size: 32),
+                        SizedBox(width: 12),
+                        Text(
+                          'Delivery Completed',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
-                      child: ElevatedButton.icon(
+                      child: OutlinedButton.icon(
                         icon: const Icon(Icons.chat),
                         label: Text(
                           'Chat${_unreadMessages > 0 ? ' ($_unreadMessages)' : ''}',
@@ -737,108 +764,13 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
                         onPressed: _openChat,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.check_circle),
-                        label: const Text('Mark Delivered'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _isWithinDeliveryRange
-                              ? Colors.green
-                              : Colors.grey,
-                        ),
-                        onPressed: _isWithinDeliveryRange
-                            ? _showMarkDeliveredDialog
-                            : null,
-                      ),
-                    ),
                   ],
                 ),
-                if (_distanceToDropoff > 0) ...[
-                  const SizedBox(height: 10),
-                  LinearProgressIndicator(
-                    value:
-                        1 -
-                        (_distanceToDropoff / _totalDistance).clamp(0.0, 1.0),
-                    backgroundColor: Colors.grey[300],
-                    color: Colors.blue,
-                    minHeight: 6,
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    'Progress: ${((1 - (_distanceToDropoff / _totalDistance)) * 100).clamp(0.0, 100.0).toStringAsFixed(1)}%',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildStatusStep() {
-    final steps = ['Assigned', 'Picked Up', 'In Transit', 'Delivered'];
-    final currentStep = _currentStatus == 'assigned'
-        ? 0
-        : _currentStatus == 'picked_up'
-        ? 1
-        : _currentStatus == 'in_transit'
-        ? 2
-        : 3;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: steps.asMap().entries.map((entry) {
-            final index = entry.key;
-            final step = entry.value;
-
-            return Expanded(
-              child: Column(
-                children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: index <= currentStep ? Colors.green : Colors.grey,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        '${index + 1}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    step,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: index <= currentStep ? Colors.green : Colors.grey,
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 8),
-        LinearProgressIndicator(
-          value: (currentStep + 1) / steps.length,
-          backgroundColor: Colors.grey[300],
-          color: Colors.green,
-        ),
-      ],
     );
   }
 }
