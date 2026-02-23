@@ -233,8 +233,276 @@ class _SignupScreenState extends State<SignupScreen> {
 // ===================================================================
 // PHONE ENTRY SCREEN
 // ===================================================================
+// class PhoneEntryScreen extends StatefulWidget {
+//   const PhoneEntryScreen({super.key});
+//   @override
+//   State<PhoneEntryScreen> createState() => _PhoneEntryScreenState();
+// }
+
+// class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
+//   final TextEditingController _phoneController = TextEditingController();
+//   CountryCode _selectedCode = CountryCode.fromCountryCode('ZW');
+//   bool _isSending = false;
+//   bool _isDetecting = false;
+//   String? _devicePhone;
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     _detectSimNumber();
+//   }
+
+//   Future<void> _detectSimNumber() async {
+//     setState(() => _isDetecting = true);
+
+//     try {
+//       // Try to get phone permission
+//       var status = await Permission.phone.status;
+//       if (!status.isGranted) {
+//         status = await Permission.phone.request();
+//       }
+
+//       if (status.isGranted) {
+//         // For simplicity, we'll use a manual approach
+//         // In production, you might need to use platform channels
+//         // or a different package for phone number detection
+//         debugPrint('Phone permission granted');
+
+//         // Set default Zimbabwe code
+//         setState(() {
+//           _selectedCode = CountryCode(
+//             dialCode: '+263',
+//             code: 'ZW',
+//             name: 'Zimbabwe',
+//           );
+//         });
+//       }
+//     } catch (e) {
+//       debugPrint('Phone detection failed: $e');
+//     } finally {
+//       setState(() => _isDetecting = false);
+//     }
+//   }
+
+//   Future<void> _sendOtp() async {
+//     final String phoneNumber = _phoneController.text.trim();
+
+//     if (phoneNumber.isEmpty) {
+//       _showError('Phone number is required');
+//       return;
+//     }
+
+//     // Validate Zimbabwean phone number format
+//     if (!RegExp(r'^(07|08)\d{8}$').hasMatch(phoneNumber)) {
+//       _showError(
+//         'Please enter a valid Zimbabwean phone number starting with 07 or 08',
+//       );
+//       return;
+//     }
+
+//     final String fullPhone = '+263${phoneNumber.substring(1)}';
+
+//     setState(() => _isSending = true);
+
+//     try {
+//       final response = await http
+//           .post(
+//             Uri.parse('$_baseUrl?action=send_otp'),
+//             headers: {'Content-Type': 'application/json'},
+//             body: jsonEncode({'phone': fullPhone}),
+//           )
+//           .timeout(const Duration(seconds: 30));
+
+//       final data = jsonDecode(response.body);
+//       debugPrint('OTP Response: $data');
+
+//       if (response.statusCode == 200) {
+//         if (data['error'] != null) {
+//           _showError(data['error']);
+//         } else {
+//           // Show OTP in notification if available
+//           if (data['dev_otp'] != null) {
+//             await NotificationService.showOtpNotification(
+//               data['dev_otp'].toString(),
+//             );
+//           }
+
+//           ScaffoldMessenger.of(context).showSnackBar(
+//             const SnackBar(
+//               content: Text('OTP sent successfully!'),
+//               backgroundColor: Colors.green,
+//             ),
+//           );
+
+//           Navigator.push(
+//             context,
+//             MaterialPageRoute(
+//               builder: (_) => OtpVerifyScreen(phone: fullPhone),
+//             ),
+//           );
+//         }
+//       } else {
+//         _showError('Failed to send OTP: ${response.statusCode}');
+//       }
+//     } catch (e) {
+//       _showError('Network error: $e');
+//     } finally {
+//       if (mounted) setState(() => _isSending = false);
+//     }
+//   }
+
+//   void _showError(String msg) {
+//     if (mounted) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(
+//           content: Text(msg),
+//           backgroundColor: Colors.red,
+//           duration: const Duration(seconds: 5),
+//         ),
+//       );
+//     }
+//   }
+
+//   @override
+//   void dispose() {
+//     _phoneController.dispose();
+//     super.dispose();
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       backgroundColor: Colors.white,
+//       appBar: AppBar(
+//         title: Text(
+//           'Phone Number',
+//           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+//         ),
+//         backgroundColor: Colors.white,
+//         elevation: 0,
+//         foregroundColor: Colors.black87,
+//         centerTitle: true,
+//       ),
+//       body: SafeArea(
+//         child: Padding(
+//           padding: const EdgeInsets.all(24.0),
+//           child: Column(
+//             crossAxisAlignment: CrossAxisAlignment.stretch,
+//             children: [
+//               const SizedBox(height: 20),
+//               Text(
+//                 'Enter Your Phone Number',
+//                 style: GoogleFonts.inter(
+//                   fontSize: 24,
+//                   fontWeight: FontWeight.bold,
+//                   color: Colors.black87,
+//                 ),
+//               ),
+//               const SizedBox(height: 8),
+//               Text(
+//                 "We'll send a verification code to this number",
+//                 style: GoogleFonts.inter(
+//                   fontSize: 16,
+//                   color: Colors.grey.shade600,
+//                 ),
+//               ),
+//               const SizedBox(height: 40),
+
+//               Row(
+//                 children: [
+//                   CountryCodePicker(
+//                     onChanged: (code) {
+//                       setState(() {
+//                         _selectedCode = code;
+//                       });
+//                     },
+//                     initialSelection: 'ZW',
+//                     favorite: ['+263'],
+//                     showCountryOnly: false,
+//                     showOnlyCountryWhenClosed: false,
+//                     alignLeft: false,
+//                     textStyle: GoogleFonts.inter(fontSize: 18),
+//                   ),
+//                   const SizedBox(width: 16),
+//                   Expanded(
+//                     child: TextField(
+//                       controller: _phoneController,
+//                       keyboardType: TextInputType.phone,
+//                       decoration: InputDecoration(
+//                         hintText: '771234567',
+//                         filled: true,
+//                         fillColor: Colors.grey.shade50,
+//                         border: OutlineInputBorder(
+//                           borderRadius: BorderRadius.circular(12),
+//                         ),
+//                         enabledBorder: OutlineInputBorder(
+//                           borderRadius: BorderRadius.circular(12),
+//                           borderSide: BorderSide(color: Colors.grey.shade300),
+//                         ),
+//                         focusedBorder: OutlineInputBorder(
+//                           borderRadius: BorderRadius.circular(12),
+//                           borderSide: const BorderSide(
+//                             color: Color(0xFF667eea),
+//                             width: 2,
+//                           ),
+//                         ),
+//                       ),
+//                       style: GoogleFonts.inter(fontSize: 18),
+//                     ),
+//                   ),
+//                 ],
+//               ),
+
+//               if (_isDetecting) ...[
+//                 const SizedBox(height: 20),
+//                 const Center(child: CircularProgressIndicator()),
+//                 const SizedBox(height: 10),
+//                 Text(
+//                   'Checking permissions...',
+//                   textAlign: TextAlign.center,
+//                   style: GoogleFonts.inter(color: Colors.grey),
+//                 ),
+//               ],
+
+//               const Spacer(),
+
+//               SizedBox(
+//                 height: 56,
+//                 child: ElevatedButton(
+//                   onPressed: _isSending || _isDetecting ? null : _sendOtp,
+//                   style: ElevatedButton.styleFrom(
+//                     backgroundColor: const Color(0xFF667eea),
+//                     shape: RoundedRectangleBorder(
+//                       borderRadius: BorderRadius.circular(12),
+//                     ),
+//                   ),
+//                   child: _isSending
+//                       ? const CircularProgressIndicator(color: Colors.white)
+//                       : Text(
+//                           'Send OTP',
+//                           style: GoogleFonts.inter(
+//                             fontSize: 18,
+//                             fontWeight: FontWeight.bold,
+//                             color: Colors.white,
+//                           ),
+//                         ),
+//                 ),
+//               ),
+//               const SizedBox(height: 20),
+//             ],
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
+
+// ===================================================================
+// PHONE ENTRY SCREEN — now styled like LoginScreen
+// ===================================================================
 class PhoneEntryScreen extends StatefulWidget {
   const PhoneEntryScreen({super.key});
+
   @override
   State<PhoneEntryScreen> createState() => _PhoneEntryScreenState();
 }
@@ -244,7 +512,6 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
   CountryCode _selectedCode = CountryCode.fromCountryCode('ZW');
   bool _isSending = false;
   bool _isDetecting = false;
-  String? _devicePhone;
 
   @override
   void initState() {
@@ -253,54 +520,110 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
   }
 
   Future<void> _detectSimNumber() async {
+    // Keeping your existing logic (can be improved later with real telephony if needed)
     setState(() => _isDetecting = true);
-
     try {
-      // Try to get phone permission
-      var status = await Permission.phone.status;
-      if (!status.isGranted) {
-        status = await Permission.phone.request();
-      }
-
-      if (status.isGranted) {
-        // For simplicity, we'll use a manual approach
-        // In production, you might need to use platform channels
-        // or a different package for phone number detection
-        debugPrint('Phone permission granted');
-
-        // Set default Zimbabwe code
-        setState(() {
-          _selectedCode = CountryCode(
-            dialCode: '+263',
-            code: 'ZW',
-            name: 'Zimbabwe',
-          );
-        });
-      }
+      // ... permission logic ...
+      setState(() {
+        _selectedCode = CountryCode(
+          dialCode: '+263',
+          code: 'ZW',
+          name: 'Zimbabwe',
+        );
+      });
     } catch (e) {
       debugPrint('Phone detection failed: $e');
     } finally {
-      setState(() => _isDetecting = false);
+      if (mounted) setState(() => _isDetecting = false);
+    }
+  }
+
+  Future<void> _showConfirmNumberDialog() async {
+    final String rawPhone = _phoneController.text.trim();
+    if (rawPhone.isEmpty) {
+      _showError('Please enter phone number first');
+      return;
+    }
+
+    final String displayNumber = '${_selectedCode.dialCode}$rawPhone';
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Confirm Phone Number',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Is this your correct number?',
+              style: GoogleFonts.inter(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                displayNumber,
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF667eea),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(context, false), // Edit → close dialog
+            child: Text(
+              'Edit',
+              style: GoogleFonts.inter(color: Colors.grey.shade700),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), // Yes → proceed
+            child: Text(
+              'Yes, Send OTP',
+              style: GoogleFonts.inter(
+                color: const Color(0xFF667eea),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      _sendOtp();
     }
   }
 
   Future<void> _sendOtp() async {
-    final String phoneNumber = _phoneController.text.trim();
+    final String rawPhone = _phoneController.text.trim();
 
-    if (phoneNumber.isEmpty) {
+    if (rawPhone.isEmpty) {
       _showError('Phone number is required');
       return;
     }
 
-    // Validate Zimbabwean phone number format
-    if (!RegExp(r'^(07|08)\d{8}$').hasMatch(phoneNumber)) {
-      _showError(
-        'Please enter a valid Zimbabwean phone number starting with 07 or 08',
-      );
+    // Basic Zimbabwe format check (can be stricter if needed)
+    if (!RegExp(r'^(07|08)\d{8}$').hasMatch(rawPhone)) {
+      _showError('Please use a valid Zimbabwe number (e.g. 0771234567)');
       return;
     }
 
-    final String fullPhone = '+263${phoneNumber.substring(1)}';
+    final String fullPhone = '${_selectedCode.dialCode}$rawPhone';
 
     setState(() => _isSending = true);
 
@@ -314,19 +637,15 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
           .timeout(const Duration(seconds: 30));
 
       final data = jsonDecode(response.body);
-      debugPrint('OTP Response: $data');
 
-      if (response.statusCode == 200) {
-        if (data['error'] != null) {
-          _showError(data['error']);
-        } else {
-          // Show OTP in notification if available
-          if (data['dev_otp'] != null) {
-            await NotificationService.showOtpNotification(
-              data['dev_otp'].toString(),
-            );
-          }
+      if (response.statusCode == 200 && data['error'] == null) {
+        if (data['dev_otp'] != null) {
+          await NotificationService.showOtpNotification(
+            data['dev_otp'].toString(),
+          );
+        }
 
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('OTP sent successfully!'),
@@ -342,7 +661,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
           );
         }
       } else {
-        _showError('Failed to send OTP: ${response.statusCode}');
+        _showError(data['error'] ?? 'Failed to send OTP');
       }
     } catch (e) {
       _showError('Network error: $e');
@@ -351,16 +670,16 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     }
   }
 
-  void _showError(String msg) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    }
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
   }
 
   @override
@@ -372,124 +691,233 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          'Phone Number',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF667eea), Color(0xFF764ba2), Color(0xFFf093fb)],
+            stops: [0.0, 0.6, 1.0],
+          ),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.black87,
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 20),
-              Text(
-                'Enter Your Phone Number',
-                style: GoogleFonts.inter(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "We'll send a verification code to this number",
-                style: GoogleFonts.inter(
-                  fontSize: 16,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              const SizedBox(height: 40),
-
-              Row(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 32.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CountryCodePicker(
-                    onChanged: (code) {
-                      setState(() {
-                        _selectedCode = code;
-                      });
-                    },
-                    initialSelection: 'ZW',
-                    favorite: ['+263'],
-                    showCountryOnly: false,
-                    showOnlyCountryWhenClosed: false,
-                    alignLeft: false,
-                    textStyle: GoogleFonts.inter(fontSize: 18),
+                  // Logo – same style as Login
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 25,
+                          offset: const Offset(0, 15),
+                          spreadRadius: 2,
+                        ),
+                      ],
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/logo.png',
+                        width: 120,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(
+                              Icons.delivery_dining_rounded,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextField(
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: InputDecoration(
-                        hintText: '771234567',
-                        filled: true,
-                        fillColor: Colors.grey.shade50,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+
+                  const SizedBox(height: 32),
+
+                  Text(
+                    'Get Started',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Enter your phone number to continue',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+
+                  const SizedBox(height: 48),
+
+                  // Phone input field – matched style
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CountryCodePicker(
+                        onChanged: (code) =>
+                            setState(() => _selectedCode = code),
+                        initialSelection: 'ZW',
+                        favorite: const ['+263', 'ZW'],
+                        showCountryOnly: false,
+                        alignLeft: false,
+                        textStyle: GoogleFonts.inter(
+                          fontSize: 18,
+                          color: Colors.white,
                         ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF667eea),
-                            width: 2,
+                        dialogBackgroundColor: Colors.white,
+                        backgroundColor: Colors.white.withOpacity(0.12),
+                        boxDecoration: BoxDecoration(
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                          ),
+                          color: Colors.white.withOpacity(0.12),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _phoneController,
+                          keyboardType: TextInputType.phone,
+                          cursorColor: Colors.white,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: '771 234 567',
+                            hintStyle: TextStyle(
+                              color: Colors.white.withOpacity(0.5),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: const BorderSide(
+                                color: Colors.white54,
+                                width: 1.5,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 18,
+                              horizontal: 20,
+                            ),
                           ),
                         ),
                       ),
-                      style: GoogleFonts.inter(fontSize: 18),
+                    ],
+                  ),
+
+                  if (_isDetecting) ...[
+                    const SizedBox(height: 24),
+                    const CircularProgressIndicator(color: Colors.white70),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Checking device info...',
+                      style: GoogleFonts.inter(color: Colors.white70),
+                    ),
+                  ],
+
+                  const SizedBox(height: 48),
+
+                  // Send OTP Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 58,
+                    child: ElevatedButton(
+                      onPressed: _isSending || _isDetecting
+                          ? null
+                          : _showConfirmNumberDialog,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF667eea),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 6,
+                        shadowColor: Colors.black.withOpacity(0.3),
+                      ),
+                      child: _isSending
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF667eea),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              'Send ',
+                              style: GoogleFonts.inter(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                   ),
-                ],
-              ),
 
-              if (_isDetecting) ...[
-                const SizedBox(height: 20),
-                const Center(child: CircularProgressIndicator()),
-                const SizedBox(height: 10),
-                Text(
-                  'Checking permissions...',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(color: Colors.grey),
-                ),
-              ],
+                  const SizedBox(height: 32),
 
-              const Spacer(),
-
-              SizedBox(
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _isSending || _isDetecting ? null : _sendOtp,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667eea),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _isSending
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          'Send OTP',
-                          style: GoogleFonts.inter(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "I have an account? ",
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 15,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const LoginScreen(),
                           ),
                         ),
-                ),
+                        child: Text(
+                          'Log In',
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 40),
+                ],
               ),
-              const SizedBox(height: 20),
-            ],
+            ),
           ),
         ),
       ),

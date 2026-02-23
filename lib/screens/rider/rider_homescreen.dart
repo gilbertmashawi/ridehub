@@ -5,9 +5,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:audioplayers/audioplayers.dart'; // For playing custom MP3 sounds
+import 'package:riderhub/screens/customer/customer_messages.dart';
 import 'package:riderhub/screens/delivery_tracking_screen.dart';
 import 'package:riderhub/screens/login.dart';
 import 'package:riderhub/screens/rider/current_job_tile.dart';
+import 'package:riderhub/screens/rider/rider_messages.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -1260,6 +1262,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       const WalletScreen(),
     ];
 
+    var _unreadMessageCount = 0;
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -1288,12 +1291,49 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         foregroundColor: Colors.white,
         actions: [
           if (_bottomNavIndex == 0)
-            IconButton(
-              icon: const Icon(Icons.list),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const JobListScreen()),
-              ),
+            // IconButton(
+            //   icon: const Icon(Icons.list),
+            //   onPressed: () => Navigator.push(
+            //     context,
+            //     MaterialPageRoute(builder: (_) => const JobListScreen()),
+            //   ),
+            // In bottom nav or app bar icon
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.message),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RiderMessagesScreen(),
+                    ), // ← rename!
+                  ),
+                ),
+                if (_unreadMessageCount > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        _unreadMessageCount > 9 ? '9+' : '$_unreadMessageCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           if (_bottomNavIndex == 0)
             IconButton(

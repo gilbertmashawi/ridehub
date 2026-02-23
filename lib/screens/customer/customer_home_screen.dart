@@ -14,6 +14,7 @@ import 'package:riderhub/screens/customer/settings_screen.dart';
 import 'package:riderhub/screens/customer/apply_rider_screen.dart';
 import 'package:riderhub/screens/rider/rider_status_screen.dart';
 import 'package:riderhub/screens/login.dart';
+import 'customer_messages.dart';
 
 // Add these imports for notification features
 import 'package:riderhub/services/notification_stream_service.dart';
@@ -463,6 +464,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       const SettingsScreen(),
     ];
 
+    var _unreadCount = 0;
     return Scaffold(
       body: Stack(
         children: [
@@ -571,8 +573,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           BottomNavigationBarItem(
             icon: Stack(
               children: [
-                const Icon(Icons.notifications_outlined),
-                if (_notificationCount > 0)
+                const Icon(Icons.message_outlined),
+                if (_unreadCount >
+                    0) // ← use your existing _notificationCount or rename
                   Positioned(
                     right: 0,
                     top: 0,
@@ -583,11 +586,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       constraints: const BoxConstraints(
-                        minWidth: 12,
-                        minHeight: 12,
+                        minWidth: 16,
+                        minHeight: 16,
                       ),
                       child: Text(
-                        _notificationCount > 9 ? '9+' : '$_notificationCount',
+                        _unreadCount > 9 ? '9+' : '$_unreadCount',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 8,
@@ -671,11 +674,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   },
                   badgeCount: _notificationCount,
                 ),
-                _actionCard(Icons.card_giftcard, 'Offers', Colors.purple, () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Offers coming soon!')),
-                  );
-                }),
               ],
             ),
 
