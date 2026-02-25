@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
-import 'package:riderhub/services/notification_stream_service.dart';
+import 'package:intl/intl.dart'; // ← better date formatting
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -17,6 +17,8 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   List<dynamic> _notifications = [];
   bool _isLoading = true;
+  bool _hasError = false;
+  String _errorMessage = '';
   int _unreadCount = 0;
 
   @override
@@ -26,80 +28,78 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _loadNotifications() async {
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+      _errorMessage = '';
+    });
+
     final prefs = await SharedPreferences.getInstance();
     final sessionId = prefs.getString('session_id');
 
-    if (sessionId == null) {
-      setState(() => _isLoading = false);
+    if (sessionId == null || sessionId.isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Please log in to view notifications';
+      });
       return;
     }
 
     try {
+      final uri = Uri.parse(
+        'https://chareta.com/riderhub/api/api.php?action=get_notifications',
+      );
+
       final response = await http.get(
-        Uri.parse(
-          'https://chareta.com/riderhub/api/api.php?action=notifications',
-        ),
-        headers: {'X-Session-Id': sessionId},
+        uri,
+        headers: {'X-Session-Id': sessionId, 'Accept': 'application/json'},
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data['notifications'] != null) {
-          // Calculate unread count
-          final unread = (data['notifications'] as List)
+
+        if (data['success'] == true && data['notifications'] is List) {
+          final List notifications = data['notifications'];
+
+          final unread = notifications
               .where((n) => (n['is_read'] ?? 0) == 0)
               .length;
 
           setState(() {
-            _notifications = data['notifications'];
+            _notifications = notifications;
             _unreadCount = unread;
             _isLoading = false;
           });
+        } else {
+          setState(() {
+            _isLoading = false;
+            _hasError = true;
+            _errorMessage = data['error'] ?? 'Invalid response format';
+          });
         }
+      } else if (response.statusCode == 401) {
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+          _errorMessage = 'Session expired. Please log in again.';
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+          _errorMessage = 'Server error (${response.statusCode})';
+        });
       }
     } catch (e) {
-      debugPrint('Load notifications error: $e');
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+        _errorMessage = 'Network error: $e';
+      });
     }
   }
 
-  // Future<void> _markAsRead(int notificationId) async {
-  //   final prefs = await SharedPreferences.getInstance();
-  //   final sessionId = prefs.getString('session_id');
-
-  //   if (sessionId == null) return;
-
-  //   try {
-  //     await http.post(
-  //       Uri.parse(
-  //         'https://chareta.com/riderhub/api/api.php?action=mark_notification_read',
-  //       ),
-  //       headers: {
-  //         'X-Session-Id': sessionId,
-  //         'Content-Type': 'application/json',
-  //       },
-  //       body: jsonEncode({'notification_id': notificationId}),
-  //     );
-
-  //     // Update local state
-  //     setState(() {
-  //       final index = _notifications.indexWhere(
-  //         (n) => n['id'] == notificationId,
-  //       );
-  //       if (index != -1) {
-  //         _notifications[index]['is_read'] = 1;
-  //         _unreadCount = _unreadCount > 0 ? _unreadCount - 1 : 0;
-  //       }
-  //     });
-
-  //     // Notify parent about read notifications
-  //     widget.onNotificationsRead?.call();
-  //   } catch (e) {
-  //     debugPrint('Mark as read error: $e');
-  //   }
-  // }
-
-  // Update the markAsRead function in notifications_screen.dart
   Future<void> _markAsRead(int notificationId) async {
     final prefs = await SharedPreferences.getInstance();
     final sessionId = prefs.getString('session_id');
@@ -114,114 +114,103 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         headers: {
           'X-Session-Id': sessionId,
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: jsonEncode({'notification_id': notificationId}),
       );
 
       if (response.statusCode == 200) {
-        // Update local state
-        setState(() {
-          final index = _notifications.indexWhere(
-            (n) => n['id'] == notificationId,
-          );
-          if (index != -1) {
-            _notifications[index]['is_read'] = 1;
-            _unreadCount = _unreadCount > 0 ? _unreadCount - 1 : 0;
-          }
-        });
-
-        // Notify parent about read notifications
-        widget.onNotificationsRead?.call();
-
-        // Also notify the notification stream service
-        final notificationService = NotificationStreamService();
-        notificationService.markAsRead(notificationId);
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            final idx = _notifications.indexWhere(
+              (n) => n['id'] == notificationId,
+            );
+            if (idx != -1) {
+              _notifications[idx]['is_read'] = 1;
+              if (_unreadCount > 0) _unreadCount--;
+            }
+          });
+          widget.onNotificationsRead?.call();
+        }
       }
     } catch (e) {
-      debugPrint('Mark as read error: $e');
+      // silent fail — don't disturb user
+      debugPrint('Mark read failed: $e');
     }
   }
 
   Future<void> _markAllAsRead() async {
-    final prefs = await SharedPreferences.getInstance();
-    final sessionId = prefs.getString('session_id');
+    if (_unreadCount == 0) return;
 
-    if (sessionId == null || _unreadCount == 0) return;
+    final unreadIds = _notifications
+        .where((n) => (n['is_read'] ?? 0) == 0)
+        .map<int>((n) => n['id'] as int)
+        .toList();
 
+    for (final id in unreadIds) {
+      await _markAsRead(id);
+    }
+  }
+
+  String _formatDate(String? dateStr) {
+    if (dateStr == null) return '—';
     try {
-      // Mark all unread notifications
-      final unreadIds = _notifications
-          .where((n) => (n['is_read'] ?? 0) == 0)
-          .map((n) => n['id'])
-          .toList();
+      final date = DateTime.parse(dateStr).toLocal();
+      final now = DateTime.now();
+      final diff = now.difference(date);
 
-      for (final id in unreadIds) {
-        await _markAsRead(id);
-      }
-
-      // Call the callback to update parent
-      widget.onNotificationsRead?.call();
-    } catch (e) {
-      debugPrint('Mark all as read error: $e');
+      if (diff.inMinutes < 2) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return DateFormat('d MMM').format(date);
+    } catch (_) {
+      return dateStr.split(' ').first;
     }
   }
 
-  void _handleNotificationTap(Map<String, dynamic> notification) {
-    if (notification['is_read'] == 0) {
-      _markAsRead(notification['id']);
-    }
-
-    // Handle different notification types
-    final type = notification['type'];
-    if (type == 'new_bid') {
-      _showBidDetails(notification);
-    } else if (type == 'bid_accepted') {
-      _showDeliveryDetails(notification);
+  IconData _getIcon(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'delivery_assigned':
+      case 'assignment_accepted':
+        return Icons.delivery_dining;
+      case 'new_message':
+      case 'chat_message':
+        return Icons.chat_bubble_outline;
+      case 'topup_approved':
+      case 'topup_rejected':
+        return Icons.account_balance_wallet;
+      case 'new_bid':
+      case 'bid_accepted':
+        return Icons.attach_money;
+      case 'system':
+      case 'broadcast':
+        return Icons.campaign;
+      default:
+        return Icons.notifications_outlined;
     }
   }
 
-  void _showBidDetails(Map<String, dynamic> notification) {
-    final data = jsonDecode(notification['data'] ?? '{}');
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(notification['title'] ?? 'Notification'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(notification['message'] ?? ''),
-            const SizedBox(height: 16),
-            if (data['bid_amount'] != null)
-              Text('Bid Amount: \$${data['bid_amount']?.toStringAsFixed(2)}'),
-            if (data['rider_name'] != null)
-              Text('Rider: ${data['rider_name']}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeliveryDetails(Map<String, dynamic> notification) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delivery Update'),
-        content: Text(notification['message'] ?? 'Delivery status updated'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+  Color _getColor(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'delivery_assigned':
+      case 'assignment_accepted':
+        return Colors.orange;
+      case 'new_message':
+      case 'chat_message':
+        return Colors.purple;
+      case 'topup_approved':
+        return Colors.green;
+      case 'topup_rejected':
+        return Colors.red;
+      case 'new_bid':
+        return Colors.teal;
+      case 'bid_accepted':
+        return Colors.blue;
+      default:
+        return Colors.blueGrey;
+    }
   }
 
   @override
@@ -232,21 +221,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           children: [
             Text(
               'Notifications',
-              style: GoogleFonts.inter(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
             ),
             if (_unreadCount > 0) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: Colors.red,
+                  color: Colors.redAccent,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  _unreadCount > 9 ? '9+' : _unreadCount.toString(),
+                  _unreadCount > 99 ? '99+' : '$_unreadCount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -257,177 +243,166 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ],
           ],
         ),
-        backgroundColor: const Color(0xFF667eea),
+        backgroundColor: const Color(0xFF6366f1),
         foregroundColor: Colors.white,
-        elevation: 0,
         actions: [
           if (_unreadCount > 0)
             IconButton(
-              icon: const Icon(Icons.mark_email_read),
+              icon: const Icon(Icons.done_all),
+              tooltip: 'Mark all read',
               onPressed: _markAllAsRead,
-              tooltip: 'Mark all as read',
             ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded),
             onPressed: _loadNotifications,
-            tooltip: 'Refresh',
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _hasError
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+                    const SizedBox(height: 16),
+                    Text(_errorMessage, textAlign: TextAlign.center),
+                    const SizedBox(height: 24),
+                    OutlinedButton.icon(
+                      onPressed: _loadNotifications,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Try Again'),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : _notifications.isEmpty
           ? Center(
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.notifications, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
+                  Icon(
+                    Icons.notifications_off_outlined,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 20),
                   Text(
-                    'No Notifications',
-                    style: TextStyle(
+                    'No notifications yet',
+                    style: GoogleFonts.inter(
                       fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[600],
+                      color: Colors.grey[700],
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'You\'ll see notifications here when you receive bids.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                    'You’ll see updates here',
+                    style: TextStyle(color: Colors.grey[500]),
                   ),
                 ],
               ),
             )
-          : ListView.builder(
-              itemCount: _notifications.length,
-              itemBuilder: (context, index) {
-                final notification = _notifications[index];
-                final isUnread = (notification['is_read'] ?? 0) == 0;
+          : RefreshIndicator(
+              onRefresh: _loadNotifications,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: _notifications.length,
+                itemBuilder: (context, i) {
+                  final n = _notifications[i];
+                  final unread = (n['is_read'] ?? 0) == 0;
+                  final type = n['type'] as String?;
 
-                return Dismissible(
-                  key: ValueKey(notification['id']),
-                  direction: DismissDirection.endToStart,
-                  background: Container(
-                    color: Colors.red,
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    child: const Icon(Icons.delete, color: Colors.white),
-                  ),
-                  onDismissed: (direction) {
-                    if (isUnread) {
-                      _markAsRead(notification['id']);
-                    }
-                  },
-                  child: Card(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
+                  return Dismissible(
+                    key: ValueKey(n['id']),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      color: Colors.redAccent,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 24),
+                      child: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.white,
+                      ),
                     ),
-                    color: isUnread ? Colors.blue[50] : null,
-                    child: ListTile(
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: _getNotificationColor(
-                            notification['type'],
-                          ).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          _getNotificationIcon(notification['type']),
-                          color: _getNotificationColor(notification['type']),
-                        ),
+                    onDismissed: (_) => _markAsRead(n['id']),
+                    child: Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
                       ),
-                      title: Text(
-                        notification['title'] ?? 'Notification',
-                        style: GoogleFonts.inter(
-                          fontWeight: isUnread
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+                      elevation: unread ? 2 : 0,
+                      color: unread ? const Color(0xFFF0F7FF) : null,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
                         ),
-                      ),
-                      subtitle: Text(
-                        notification['message'] ?? '',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            _formatTime(notification['created_at']),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                        leading: CircleAvatar(
+                          backgroundColor: _getColor(type).withOpacity(0.15),
+                          radius: 24,
+                          child: Icon(_getIcon(type), color: _getColor(type)),
+                        ),
+                        title: Text(
+                          n['title']?.toString() ?? 'Update',
+                          style: GoogleFonts.inter(
+                            fontWeight: unread
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            n['message']?.toString() ?? '',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.grey[700],
+                              height: 1.3,
                             ),
                           ),
-                          if (isUnread)
-                            Container(
-                              margin: const EdgeInsets.only(top: 4),
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Colors.blue,
-                                shape: BoxShape.circle,
+                        ),
+                        trailing: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              _formatDate(n['created_at']),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
                               ),
                             ),
-                        ],
+                            if (unread)
+                              Container(
+                                margin: const EdgeInsets.only(top: 6),
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF6366f1),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                          ],
+                        ),
+                        onTap: () {
+                          if (unread) _markAsRead(n['id']);
+                          // You can navigate / show dialog based on type here
+                        },
                       ),
-                      onTap: () => _handleNotificationTap(notification),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
     );
-  }
-
-  IconData _getNotificationIcon(String type) {
-    switch (type) {
-      case 'new_bid':
-        return Icons.attach_money;
-      case 'bid_accepted':
-        return Icons.check_circle;
-      case 'delivery_assigned':
-        return Icons.delivery_dining;
-      case 'new_message':
-        return Icons.message;
-      default:
-        return Icons.notifications;
-    }
-  }
-
-  Color _getNotificationColor(String type) {
-    switch (type) {
-      case 'new_bid':
-        return Colors.green;
-      case 'bid_accepted':
-        return Colors.blue;
-      case 'delivery_assigned':
-        return Colors.orange;
-      case 'new_message':
-        return Colors.purple;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _formatTime(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      final now = DateTime.now();
-      final difference = now.difference(date);
-
-      if (difference.inMinutes < 1) return 'Just now';
-      if (difference.inMinutes < 60) return '${difference.inMinutes}m ago';
-      if (difference.inHours < 24) return '${difference.inHours}h ago';
-      return '${difference.inDays}d ago';
-    } catch (e) {
-      return dateString;
-    }
   }
 }
