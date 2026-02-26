@@ -1,4 +1,6 @@
 // lib/screens/signup_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
@@ -231,273 +233,6 @@ class _SignupScreenState extends State<SignupScreen> {
 }
 
 // ===================================================================
-// PHONE ENTRY SCREEN
-// ===================================================================
-// class PhoneEntryScreen extends StatefulWidget {
-//   const PhoneEntryScreen({super.key});
-//   @override
-//   State<PhoneEntryScreen> createState() => _PhoneEntryScreenState();
-// }
-
-// class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
-//   final TextEditingController _phoneController = TextEditingController();
-//   CountryCode _selectedCode = CountryCode.fromCountryCode('ZW');
-//   bool _isSending = false;
-//   bool _isDetecting = false;
-//   String? _devicePhone;
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     _detectSimNumber();
-//   }
-
-//   Future<void> _detectSimNumber() async {
-//     setState(() => _isDetecting = true);
-
-//     try {
-//       // Try to get phone permission
-//       var status = await Permission.phone.status;
-//       if (!status.isGranted) {
-//         status = await Permission.phone.request();
-//       }
-
-//       if (status.isGranted) {
-//         // For simplicity, we'll use a manual approach
-//         // In production, you might need to use platform channels
-//         // or a different package for phone number detection
-//         debugPrint('Phone permission granted');
-
-//         // Set default Zimbabwe code
-//         setState(() {
-//           _selectedCode = CountryCode(
-//             dialCode: '+263',
-//             code: 'ZW',
-//             name: 'Zimbabwe',
-//           );
-//         });
-//       }
-//     } catch (e) {
-//       debugPrint('Phone detection failed: $e');
-//     } finally {
-//       setState(() => _isDetecting = false);
-//     }
-//   }
-
-//   Future<void> _sendOtp() async {
-//     final String phoneNumber = _phoneController.text.trim();
-
-//     if (phoneNumber.isEmpty) {
-//       _showError('Phone number is required');
-//       return;
-//     }
-
-//     // Validate Zimbabwean phone number format
-//     if (!RegExp(r'^(07|08)\d{8}$').hasMatch(phoneNumber)) {
-//       _showError(
-//         'Please enter a valid Zimbabwean phone number starting with 07 or 08',
-//       );
-//       return;
-//     }
-
-//     final String fullPhone = '+263${phoneNumber.substring(1)}';
-
-//     setState(() => _isSending = true);
-
-//     try {
-//       final response = await http
-//           .post(
-//             Uri.parse('$_baseUrl?action=send_otp'),
-//             headers: {'Content-Type': 'application/json'},
-//             body: jsonEncode({'phone': fullPhone}),
-//           )
-//           .timeout(const Duration(seconds: 30));
-
-//       final data = jsonDecode(response.body);
-//       debugPrint('OTP Response: $data');
-
-//       if (response.statusCode == 200) {
-//         if (data['error'] != null) {
-//           _showError(data['error']);
-//         } else {
-//           // Show OTP in notification if available
-//           if (data['dev_otp'] != null) {
-//             await NotificationService.showOtpNotification(
-//               data['dev_otp'].toString(),
-//             );
-//           }
-
-//           ScaffoldMessenger.of(context).showSnackBar(
-//             const SnackBar(
-//               content: Text('OTP sent successfully!'),
-//               backgroundColor: Colors.green,
-//             ),
-//           );
-
-//           Navigator.push(
-//             context,
-//             MaterialPageRoute(
-//               builder: (_) => OtpVerifyScreen(phone: fullPhone),
-//             ),
-//           );
-//         }
-//       } else {
-//         _showError('Failed to send OTP: ${response.statusCode}');
-//       }
-//     } catch (e) {
-//       _showError('Network error: $e');
-//     } finally {
-//       if (mounted) setState(() => _isSending = false);
-//     }
-//   }
-
-//   void _showError(String msg) {
-//     if (mounted) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(
-//           content: Text(msg),
-//           backgroundColor: Colors.red,
-//           duration: const Duration(seconds: 5),
-//         ),
-//       );
-//     }
-//   }
-
-//   @override
-//   void dispose() {
-//     _phoneController.dispose();
-//     super.dispose();
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       backgroundColor: Colors.white,
-//       appBar: AppBar(
-//         title: Text(
-//           'Phone Number',
-//           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
-//         ),
-//         backgroundColor: Colors.white,
-//         elevation: 0,
-//         foregroundColor: Colors.black87,
-//         centerTitle: true,
-//       ),
-//       body: SafeArea(
-//         child: Padding(
-//           padding: const EdgeInsets.all(24.0),
-//           child: Column(
-//             crossAxisAlignment: CrossAxisAlignment.stretch,
-//             children: [
-//               const SizedBox(height: 20),
-//               Text(
-//                 'Enter Your Phone Number',
-//                 style: GoogleFonts.inter(
-//                   fontSize: 24,
-//                   fontWeight: FontWeight.bold,
-//                   color: Colors.black87,
-//                 ),
-//               ),
-//               const SizedBox(height: 8),
-//               Text(
-//                 "We'll send a verification code to this number",
-//                 style: GoogleFonts.inter(
-//                   fontSize: 16,
-//                   color: Colors.grey.shade600,
-//                 ),
-//               ),
-//               const SizedBox(height: 40),
-
-//               Row(
-//                 children: [
-//                   CountryCodePicker(
-//                     onChanged: (code) {
-//                       setState(() {
-//                         _selectedCode = code;
-//                       });
-//                     },
-//                     initialSelection: 'ZW',
-//                     favorite: ['+263'],
-//                     showCountryOnly: false,
-//                     showOnlyCountryWhenClosed: false,
-//                     alignLeft: false,
-//                     textStyle: GoogleFonts.inter(fontSize: 18),
-//                   ),
-//                   const SizedBox(width: 16),
-//                   Expanded(
-//                     child: TextField(
-//                       controller: _phoneController,
-//                       keyboardType: TextInputType.phone,
-//                       decoration: InputDecoration(
-//                         hintText: '771234567',
-//                         filled: true,
-//                         fillColor: Colors.grey.shade50,
-//                         border: OutlineInputBorder(
-//                           borderRadius: BorderRadius.circular(12),
-//                         ),
-//                         enabledBorder: OutlineInputBorder(
-//                           borderRadius: BorderRadius.circular(12),
-//                           borderSide: BorderSide(color: Colors.grey.shade300),
-//                         ),
-//                         focusedBorder: OutlineInputBorder(
-//                           borderRadius: BorderRadius.circular(12),
-//                           borderSide: const BorderSide(
-//                             color: Color(0xFF667eea),
-//                             width: 2,
-//                           ),
-//                         ),
-//                       ),
-//                       style: GoogleFonts.inter(fontSize: 18),
-//                     ),
-//                   ),
-//                 ],
-//               ),
-
-//               if (_isDetecting) ...[
-//                 const SizedBox(height: 20),
-//                 const Center(child: CircularProgressIndicator()),
-//                 const SizedBox(height: 10),
-//                 Text(
-//                   'Checking permissions...',
-//                   textAlign: TextAlign.center,
-//                   style: GoogleFonts.inter(color: Colors.grey),
-//                 ),
-//               ],
-
-//               const Spacer(),
-
-//               SizedBox(
-//                 height: 56,
-//                 child: ElevatedButton(
-//                   onPressed: _isSending || _isDetecting ? null : _sendOtp,
-//                   style: ElevatedButton.styleFrom(
-//                     backgroundColor: const Color(0xFF667eea),
-//                     shape: RoundedRectangleBorder(
-//                       borderRadius: BorderRadius.circular(12),
-//                     ),
-//                   ),
-//                   child: _isSending
-//                       ? const CircularProgressIndicator(color: Colors.white)
-//                       : Text(
-//                           'Send OTP',
-//                           style: GoogleFonts.inter(
-//                             fontSize: 18,
-//                             fontWeight: FontWeight.bold,
-//                             color: Colors.white,
-//                           ),
-//                         ),
-//                 ),
-//               ),
-//               const SizedBox(height: 20),
-//             ],
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }
-
-// ===================================================================
 // PHONE ENTRY SCREEN — now styled like LoginScreen
 // ===================================================================
 class PhoneEntryScreen extends StatefulWidget {
@@ -552,12 +287,12 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          'Confirm Phone Number',
+          'Confirm Phone',
           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
               'Is this your correct number?',
@@ -593,7 +328,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, true), // Yes → proceed
             child: Text(
-              'Yes, Send OTP',
+              'Yes',
               style: GoogleFonts.inter(
                 color: const Color(0xFF667eea),
                 fontWeight: FontWeight.w600,
@@ -806,7 +541,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                             fontSize: 17,
                           ),
                           decoration: InputDecoration(
-                            hintText: '771 234 567',
+                            hintText: '0771 234 567',
                             hintStyle: TextStyle(
                               color: Colors.white.withOpacity(0.5),
                             ),
@@ -927,13 +662,299 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
 
 // ===================================================================
 // OTP VERIFY SCREEN
+// // ===================================================================
+// class OtpVerifyScreen extends StatefulWidget {
+//   final String phone;
+//   const OtpVerifyScreen({super.key, required this.phone});
+//   @override
+//   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
+// }
+
+// bool _isResending = false;
+// int _resendCooldown = 0;
+
+// class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
+//   final TextEditingController _otpController = TextEditingController();
+//   bool _isVerifying = false;
+
+//   @override
+//   void dispose() {
+//     _otpController.dispose();
+//     super.dispose();
+//   }
+
+//   Future<void> _verifyOtp() async {
+//     final String otp = _otpController.text.trim();
+
+//     if (otp.isEmpty || otp.length != 6) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         const SnackBar(
+//           content: Text('Please enter 6-digit OTP'),
+//           backgroundColor: Colors.red,
+//         ),
+//       );
+//       return;
+//     }
+
+//     setState(() => _isVerifying = true);
+
+//     try {
+//       final response = await http
+//           .post(
+//             Uri.parse('$_baseUrl?action=verify_otp'),
+//             headers: {'Content-Type': 'application/json'},
+//             body: jsonEncode({'phone': widget.phone, 'otp': otp}),
+//           )
+//           .timeout(const Duration(seconds: 30));
+
+//       final data = jsonDecode(response.body);
+//       debugPrint('Verify OTP Response: $data');
+
+//       if (response.statusCode == 200) {
+//         if (data['verified'] == true) {
+//           Navigator.pushReplacement(
+//             context,
+//             MaterialPageRoute(
+//               builder: (_) => RegisterDetailsScreen(phone: widget.phone),
+//             ),
+//           );
+//         } else {
+//           ScaffoldMessenger.of(context).showSnackBar(
+//             SnackBar(
+//               content: Text(data['error'] ?? 'Invalid OTP'),
+//               backgroundColor: Colors.red,
+//             ),
+//           );
+//         }
+//       } else {
+//         ScaffoldMessenger.of(context).showSnackBar(
+//           SnackBar(
+//             content: Text('Verification failed: ${response.statusCode}'),
+//             backgroundColor: Colors.red,
+//           ),
+//         );
+//       }
+//     } catch (e) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(
+//           content: Text('Network error: $e'),
+//           backgroundColor: Colors.red,
+//         ),
+//       );
+//     } finally {
+//       setState(() => _isVerifying = false);
+//     }
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: const Text('Verify OTP'),
+//         backgroundColor: Colors.white,
+//         elevation: 0,
+//         foregroundColor: Colors.black87,
+//       ),
+//       body: Padding(
+//         padding: const EdgeInsets.all(24),
+//         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.stretch,
+//           children: [
+//             const SizedBox(height: 40),
+//             Text(
+//               'Enter 6-digit code sent to',
+//               textAlign: TextAlign.center,
+//               style: GoogleFonts.inter(fontSize: 18),
+//             ),
+//             const SizedBox(height: 8),
+//             Text(
+//               widget.phone,
+//               textAlign: TextAlign.center,
+//               style: GoogleFonts.inter(
+//                 fontSize: 20,
+//                 fontWeight: FontWeight.bold,
+//                 color: const Color(0xFF667eea),
+//               ),
+//             ),
+//             const SizedBox(height: 40),
+//             TextField(
+//               controller: _otpController,
+//               keyboardType: TextInputType.number,
+//               textAlign: TextAlign.center,
+//               maxLength: 6,
+//               style: GoogleFonts.inter(
+//                 fontSize: 24,
+//                 fontWeight: FontWeight.bold,
+//               ),
+//               decoration: InputDecoration(
+//                 counterText: '',
+//                 filled: true,
+//                 fillColor: Colors.grey.shade50,
+//                 border: OutlineInputBorder(
+//                   borderRadius: BorderRadius.circular(12),
+//                   borderSide: BorderSide.none,
+//                 ),
+//                 hintText: '123456',
+//                 hintStyle: GoogleFonts.inter(fontSize: 18, color: Colors.grey),
+//               ),
+//             ),
+//             const SizedBox(height: 30),
+//             SizedBox(
+//               height: 56,
+//               child: ElevatedButton(
+//                 onPressed: _isVerifying ? null : _verifyOtp,
+//                 style: ElevatedButton.styleFrom(
+//                   backgroundColor: const Color(0xFF667eea),
+//                   shape: RoundedRectangleBorder(
+//                     borderRadius: BorderRadius.circular(12),
+//                   ),
+//                 ),
+//                 child: _isVerifying
+//                     ? const CircularProgressIndicator(color: Colors.white)
+//                     : Text(
+//                         'Verify OTP',
+//                         style: GoogleFonts.inter(
+//                           fontSize: 18,
+//                           fontWeight: FontWeight.bold,
+//                         ),
+//                       ),
+//               ),
+//             ),
+//             const SizedBox(height: 20),
+//             TextButton(
+//               onPressed: _isVerifying || _isResending || _resendCooldown > 0
+//                   ? null
+//                   : () async {
+//                       setState(() {
+//                         _isResending = true;
+//                       });
+
+//                       try {
+//                         final response = await http
+//                             .post(
+//                               Uri.parse('$_baseUrl?action=send_otp'),
+//                               headers: {'Content-Type': 'application/json'},
+//                               body: jsonEncode({'phone': widget.phone}),
+//                             )
+//                             .timeout(const Duration(seconds: 30));
+
+//                         final data = jsonDecode(response.body);
+
+//                         if (response.statusCode == 200 &&
+//                             data['error'] == null) {
+//                           // Optional: Show dev OTP in notification (if backend returns it)
+//                           if (data['dev_otp'] != null) {
+//                             await NotificationService.showOtpNotification(
+//                               data['dev_otp'].toString(),
+//                             );
+//                           }
+
+//                           if (mounted) {
+//                             ScaffoldMessenger.of(context).showSnackBar(
+//                               const SnackBar(
+//                                 content: Text(
+//                                   'New OTP sent! Check your phone.',
+//                                 ),
+//                                 backgroundColor: Colors.green,
+//                               ),
+//                             );
+
+//                             // Start 60-second cooldown
+//                             setState(() {
+//                               _resendCooldown = 60;
+//                             });
+
+//                             // Countdown timer
+//                             Timer.periodic(const Duration(seconds: 1), (timer) {
+//                               if (_resendCooldown > 0 && mounted) {
+//                                 setState(() => _resendCooldown--);
+//                               } else {
+//                                 timer.cancel();
+//                               }
+//                             });
+//                           }
+//                         } else {
+//                           if (mounted) {
+//                             ScaffoldMessenger.of(context).showSnackBar(
+//                               SnackBar(
+//                                 content: Text(
+//                                   data['error'] ?? 'Failed to resend OTP',
+//                                 ),
+//                                 backgroundColor: Colors.red,
+//                               ),
+//                             );
+//                           }
+//                         }
+//                       } catch (e) {
+//                         if (mounted) {
+//                           ScaffoldMessenger.of(context).showSnackBar(
+//                             SnackBar(
+//                               content: Text('Network error: $e'),
+//                               backgroundColor: Colors.red,
+//                             ),
+//                           );
+//                         }
+//                       } finally {
+//                         if (mounted) {
+//                           setState(() {
+//                             _isResending = false;
+//                           });
+//                         }
+//                       }
+//                     },
+//               child: Row(
+//                 mainAxisSize: MainAxisSize.min,
+//                 children: [
+//                   if (_isResending)
+//                     const Padding(
+//                       padding: EdgeInsets.only(right: 8),
+//                       child: SizedBox(
+//                         width: 16,
+//                         height: 16,
+//                         child: CircularProgressIndicator(
+//                           strokeWidth: 2.5,
+//                           valueColor: AlwaysStoppedAnimation<Color>(
+//                             Color(0xFF667eea),
+//                           ),
+//                         ),
+//                       ),
+//                     ),
+//                   Text(
+//                     _resendCooldown > 0
+//                         ? 'Resend in $_resendCooldown s'
+//                         : "Didn't receive code? Resend",
+//                     style: GoogleFonts.inter(
+//                       color: _resendCooldown > 0 || _isResending
+//                           ? Colors.grey.shade500
+//                           : const Color(0xFF667eea),
+//                       fontWeight: _resendCooldown > 0 || _isResending
+//                           ? FontWeight.normal
+//                           : FontWeight.w600,
+//                     ),
+//                   ),
+//                 ],
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+
+// ===================================================================
+// OTP VERIFY SCREEN — now consistent with LoginScreen & PhoneEntryScreen
 // ===================================================================
 class OtpVerifyScreen extends StatefulWidget {
   final String phone;
   const OtpVerifyScreen({super.key, required this.phone});
+
   @override
   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
 }
+
+bool _isResending = false;
+int _resendCooldown = 0;
 
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final TextEditingController _otpController = TextEditingController();
@@ -1011,95 +1032,295 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Verify OTP'),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.black87,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 40),
-            Text(
-              'Enter 6-digit code sent to',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(fontSize: 18),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.phone,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF667eea),
-              ),
-            ),
-            const SizedBox(height: 40),
-            TextField(
-              controller: _otpController,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              maxLength: 6,
-              style: GoogleFonts.inter(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-              decoration: InputDecoration(
-                counterText: '',
-                filled: true,
-                fillColor: Colors.grey.shade50,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                hintText: '123456',
-                hintStyle: GoogleFonts.inter(fontSize: 18, color: Colors.grey),
-              ),
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              height: 56,
-              child: ElevatedButton(
-                onPressed: _isVerifying ? null : _verifyOtp,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF667eea),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF667eea), Color(0xFF764ba2), Color(0xFFf093fb)],
+            stops: [0.0, 0.6, 1.0],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 32.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo — matching LoginScreen & PhoneEntryScreen
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 25,
+                          offset: const Offset(0, 15),
+                          spreadRadius: 2,
+                        ),
+                      ],
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/logo.png',
+                        width: 120,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(
+                              Icons.delivery_dining_rounded,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                      ),
+                    ),
                   ),
-                ),
-                child: _isVerifying
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : Text(
-                        'Verify OTP',
-                        style: GoogleFonts.inter(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+
+                  const SizedBox(height: 32),
+
+                  Text(
+                    'Verify Your Number',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Enter the 6-digit code sent to',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    widget.phone,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+
+                  const SizedBox(height: 48),
+
+                  // OTP input — styled like other auth fields
+                  TextField(
+                    controller: _otpController,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    maxLength: 6,
+                    style: GoogleFonts.inter(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 12.0,
+                    ),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      hintText: '—— ——',
+                      hintStyle: GoogleFonts.inter(
+                        fontSize: 32,
+                        color: Colors.white38,
+                        letterSpacing: 12.0,
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.13),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 20),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(
+                          color: Colors.white54,
+                          width: 1.8,
                         ),
                       ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: _isVerifying
-                  ? null
-                  : () {
-                      // Option to resend OTP
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('OTP resend feature to be implemented'),
+                    ),
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // Verify button — white bg + brand color text, like login
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: _isVerifying ? null : _verifyOtp,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF667eea),
+                        elevation: 5,
+                        shadowColor: Colors.black.withOpacity(0.25),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                      );
-                    },
-              child: Text(
-                "Didn't receive code? Resend",
-                style: GoogleFonts.inter(color: const Color(0xFF667eea)),
+                      ),
+                      child: _isVerifying
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.8,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF667eea),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              'Verify & Continue',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Resend button — white text, subtle when disabled/cooldown
+                  TextButton(
+                    onPressed:
+                        _isVerifying || _isResending || _resendCooldown > 0
+                        ? null
+                        : () async {
+                            setState(() {
+                              _isResending = true;
+                            });
+
+                            try {
+                              final response = await http
+                                  .post(
+                                    Uri.parse('$_baseUrl?action=send_otp'),
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                    },
+                                    body: jsonEncode({'phone': widget.phone}),
+                                  )
+                                  .timeout(const Duration(seconds: 30));
+
+                              final data = jsonDecode(response.body);
+
+                              if (response.statusCode == 200 &&
+                                  data['error'] == null) {
+                                if (data['dev_otp'] != null) {
+                                  await NotificationService.showOtpNotification(
+                                    data['dev_otp'].toString(),
+                                  );
+                                }
+
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'New OTP sent! Check your phone.',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+
+                                  setState(() {
+                                    _resendCooldown = 60;
+                                  });
+
+                                  Timer.periodic(const Duration(seconds: 1), (
+                                    timer,
+                                  ) {
+                                    if (_resendCooldown > 0 && mounted) {
+                                      setState(() => _resendCooldown--);
+                                    } else {
+                                      timer.cancel();
+                                    }
+                                  });
+                                }
+                              } else {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        data['error'] ?? 'Failed to resend OTP',
+                                      ),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Network error: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            } finally {
+                              if (mounted) {
+                                setState(() {
+                                  _isResending = false;
+                                });
+                              }
+                            }
+                          },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_isResending)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 10),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ),
+                        Text(
+                          _resendCooldown > 0
+                              ? 'Resend in $_resendCooldown s'
+                              : "Didn't receive the code? Resend",
+                          style: GoogleFonts.inter(
+                            color: _resendCooldown > 0 || _isResending
+                                ? Colors.white60
+                                : Colors.white,
+                            fontSize: 15,
+                            fontWeight: _resendCooldown > 0 || _isResending
+                                ? FontWeight.normal
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 48),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1108,6 +1329,437 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
 // ===================================================================
 // REGISTRATION DETAILS SCREEN
+// ===================================================================
+// class RegisterDetailsScreen extends StatefulWidget {
+//   final String phone;
+//   const RegisterDetailsScreen({super.key, required this.phone});
+
+//   @override
+//   State<RegisterDetailsScreen> createState() => _RegisterDetailsScreenState();
+// }
+
+// class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
+//   final TextEditingController _firstNameController = TextEditingController();
+//   final TextEditingController _lastNameController = TextEditingController();
+//   final TextEditingController _passwordController = TextEditingController();
+
+//   File? _facePicture;
+//   File? _idFrontPicture;
+
+//   bool _isRegistering = false;
+//   final ImagePicker _picker = ImagePicker();
+
+//   @override
+//   void dispose() {
+//     _firstNameController.dispose();
+//     _lastNameController.dispose();
+//     _passwordController.dispose();
+//     super.dispose();
+//   }
+
+//   Future<void> _pickImage(ImageSource source, bool isFacePicture) async {
+//     try {
+//       final pickedFile = await _picker.pickImage(
+//         source: source,
+//         imageQuality: 80,
+//         maxWidth: 800,
+//         maxHeight: 800,
+//       );
+
+//       if (pickedFile != null) {
+//         setState(() {
+//           if (isFacePicture) {
+//             _facePicture = File(pickedFile.path);
+//           } else {
+//             _idFrontPicture = File(pickedFile.path);
+//           }
+//         });
+//       }
+//     } catch (e) {
+//       debugPrint('Image pick error: $e');
+//       _showError('Failed to pick image: $e');
+//     }
+//   }
+
+//   Widget _buildImagePicker({
+//     required String title,
+//     required String buttonText,
+//     required File? imageFile,
+//     required bool isFacePicture,
+//   }) {
+//     return Column(
+//       crossAxisAlignment: CrossAxisAlignment.start,
+//       children: [
+//         Text(
+//           title,
+//           style: GoogleFonts.inter(
+//             fontSize: 14,
+//             fontWeight: FontWeight.w600,
+//             color: Colors.black87,
+//           ),
+//         ),
+//         const SizedBox(height: 8),
+//         Container(
+//           height: 140,
+//           decoration: BoxDecoration(
+//             color: Colors.grey.shade50,
+//             borderRadius: BorderRadius.circular(12),
+//             border: Border.all(color: Colors.grey.shade300),
+//           ),
+//           child: imageFile == null
+//               ? Center(
+//                   child: Column(
+//                     mainAxisAlignment: MainAxisAlignment.center,
+//                     children: [
+//                       OutlinedButton.icon(
+//                         onPressed: _isRegistering
+//                             ? null
+//                             : () async {
+//                                 await _pickImage(
+//                                   ImageSource.gallery,
+//                                   isFacePicture,
+//                                 );
+//                               },
+//                         icon: const Icon(Icons.photo_library),
+//                         label: Text('$buttonText from Gallery'),
+//                       ),
+//                       const SizedBox(height: 8),
+//                       OutlinedButton.icon(
+//                         onPressed: _isRegistering
+//                             ? null
+//                             : () async {
+//                                 await _pickImage(
+//                                   ImageSource.camera,
+//                                   isFacePicture,
+//                                 );
+//                               },
+//                         icon: const Icon(Icons.camera_alt),
+//                         label: Text('$buttonText with Camera'),
+//                       ),
+//                     ],
+//                   ),
+//                 )
+//               : Stack(
+//                   fit: StackFit.expand,
+//                   children: [
+//                     ClipRRect(
+//                       borderRadius: BorderRadius.circular(12),
+//                       child: Image.file(imageFile, fit: BoxFit.cover),
+//                     ),
+//                     Positioned(
+//                       top: 8,
+//                       right: 8,
+//                       child: GestureDetector(
+//                         onTap: () {
+//                           setState(() {
+//                             if (isFacePicture) {
+//                               _facePicture = null;
+//                             } else {
+//                               _idFrontPicture = null;
+//                             }
+//                           });
+//                         },
+//                         child: CircleAvatar(
+//                           backgroundColor: Colors.red.withOpacity(0.8),
+//                           radius: 14,
+//                           child: const Icon(
+//                             Icons.close,
+//                             size: 16,
+//                             color: Colors.white,
+//                           ),
+//                         ),
+//                       ),
+//                     ),
+//                   ],
+//                 ),
+//         ),
+//         const SizedBox(height: 16),
+//       ],
+//     );
+//   }
+
+//   Future<void> _registerUser() async {
+//     final String firstName = _firstNameController.text.trim();
+//     final String lastName = _lastNameController.text.trim();
+//     final String password = _passwordController.text.trim();
+
+//     // Validation — removed image checks
+//     if (firstName.isEmpty || lastName.isEmpty) {
+//       _showError('Please enter your first and last name');
+//       return;
+//     }
+
+//     if (password.isEmpty || password.length < 6) {
+//       _showError('Password must be at least 6 characters');
+//       return;
+//     }
+
+//     final String fullName = '$firstName $lastName';
+//     setState(() => _isRegistering = true);
+
+//     try {
+//       // Create multipart request
+//       var request = http.MultipartRequest(
+//         'POST',
+//         Uri.parse('$_baseUrl?action=register_multipart'),
+//       );
+
+//       // Add text fields
+//       request.fields['name'] = fullName;
+//       request.fields['phone'] = widget.phone;
+//       request.fields['password'] = password;
+//       request.fields['user_type'] = 'customer';
+
+//       // Add images ONLY if they exist (optional now)
+//       if (_facePicture != null) {
+//         request.files.add(
+//           await http.MultipartFile.fromPath(
+//             'face_picture',
+//             _facePicture!.path,
+//             filename: 'face_${DateTime.now().millisecondsSinceEpoch}.jpg',
+//           ),
+//         );
+//       }
+
+//       if (_idFrontPicture != null) {
+//         request.files.add(
+//           await http.MultipartFile.fromPath(
+//             'id_front_picture',
+//             _idFrontPicture!.path,
+//             filename: 'id_${DateTime.now().millisecondsSinceEpoch}.jpg',
+//           ),
+//         );
+//       }
+
+//       // Send request
+//       final streamedResponse = await request.send();
+//       final response = await http.Response.fromStream(streamedResponse);
+
+//       debugPrint('Registration status: ${response.statusCode}');
+//       debugPrint('Registration body: ${response.body}');
+
+//       if (response.statusCode == 200 || response.statusCode == 201) {
+//         final responseData = jsonDecode(response.body);
+
+//         if (responseData['error'] != null) {
+//           _showError(responseData['error']);
+//           return;
+//         }
+
+//         // Save session data
+//         final String sessionId = responseData['session_id'];
+//         final String userId = responseData['user_id'].toString();
+//         final String userType = responseData['user_type'] ?? 'customer';
+
+//         final prefs = await SharedPreferences.getInstance();
+//         await prefs.setString('session_id', sessionId);
+//         await prefs.setInt('user_id', int.parse(userId));
+//         await prefs.setString('user_type', userType);
+//         await prefs.setBool('isLoggedIn', true);
+
+//         // Fetch and store profile
+//         await _fetchAndStoreUserProfile(sessionId);
+
+//         if (mounted) {
+//           ScaffoldMessenger.of(context).showSnackBar(
+//             const SnackBar(
+//               content: Text('Registration successful!'),
+//               backgroundColor: Colors.green,
+//               behavior: SnackBarBehavior.floating,
+//             ),
+//           );
+
+//           Navigator.pushReplacement(
+//             context,
+//             MaterialPageRoute(builder: (context) => const CustomerHomeScreen()),
+//           );
+//         }
+//       } else {
+//         final errorData = jsonDecode(response.body);
+//         _showError(errorData['error'] ?? 'Registration failed');
+//       }
+//     } catch (e) {
+//       debugPrint('Registration error: $e');
+//       _showError('Network error: $e');
+//     } finally {
+//       if (mounted) setState(() => _isRegistering = false);
+//     }
+//   }
+
+//   Future<void> _fetchAndStoreUserProfile(String sessionId) async {
+//     try {
+//       final response = await http
+//           .get(
+//             Uri.parse('$_baseUrl?action=profile'),
+//             headers: {'X-Session-Id': sessionId},
+//           )
+//           .timeout(const Duration(seconds: 30));
+
+//       if (response.statusCode == 200) {
+//         final data = jsonDecode(response.body);
+//         if (data['error'] == null) {
+//           final prefs = await SharedPreferences.getInstance();
+//           await prefs.setString('user_name', data['name'] ?? '');
+//           await prefs.setString('user_phone', data['phone'] ?? '');
+//         }
+//       }
+//     } catch (e) {
+//       debugPrint('Profile fetch error: $e');
+//     }
+//   }
+
+//   void _showError(String message) {
+//     if (mounted) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(
+//           content: Text(message),
+//           backgroundColor: Colors.red,
+//           duration: const Duration(seconds: 3),
+//         ),
+//       );
+//     }
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       backgroundColor: Colors.white,
+//       appBar: AppBar(
+//         title: Text(
+//           'Complete Registration',
+//           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+//         ),
+//         backgroundColor: Colors.white,
+//         elevation: 0,
+//         foregroundColor: Colors.black87,
+//         centerTitle: true,
+//       ),
+//       body: SafeArea(
+//         child: Padding(
+//           padding: const EdgeInsets.all(24.0),
+//           child: SingleChildScrollView(
+//             child: Column(
+//               crossAxisAlignment: CrossAxisAlignment.stretch,
+//               children: [
+//                 const SizedBox(height: 20),
+//                 Text(
+//                   'Your phone ${widget.phone} is verified.',
+//                   style: GoogleFonts.inter(
+//                     fontSize: 16,
+//                     color: Colors.grey.shade600,
+//                   ),
+//                 ),
+//                 const SizedBox(height: 32),
+
+//                 // Text Fields
+//                 TextFormField(
+//                   controller: _firstNameController,
+//                   decoration: _buildInputDecoration('First Name'),
+//                   style: GoogleFonts.inter(color: Colors.black87),
+//                 ),
+//                 const SizedBox(height: 16),
+//                 TextFormField(
+//                   controller: _lastNameController,
+//                   decoration: _buildInputDecoration('Last Name'),
+//                   style: GoogleFonts.inter(color: Colors.black87),
+//                 ),
+//                 const SizedBox(height: 16),
+//                 TextFormField(
+//                   controller: _passwordController,
+//                   obscureText: true,
+//                   decoration: _buildInputDecoration(
+//                     'Password (min 6 characters)',
+//                   ),
+//                   style: GoogleFonts.inter(color: Colors.black87),
+//                 ),
+//                 const SizedBox(height: 32),
+
+//                 // // Face Picture Upload (optional)
+//                 // _buildImagePicker(
+//                 //   title: 'Face Picture (optional)',
+//                 //   buttonText: 'Select Face Picture',
+//                 //   imageFile: _facePicture,
+//                 //   isFacePicture: true,
+//                 // ),
+
+//                 // const SizedBox(height: 24),
+
+//                 // // ID Front Picture Upload (optional)
+//                 // _buildImagePicker(
+//                 //   title: 'ID/License Front Picture (optional)',
+//                 //   buttonText: 'Select ID Picture',
+//                 //   imageFile: _idFrontPicture,
+//                 //   isFacePicture: false,
+//                 // ),
+//                 const SizedBox(height: 32),
+
+//                 // Register Button
+//                 SizedBox(
+//                   height: 56,
+//                   child: ElevatedButton(
+//                     onPressed: _isRegistering ? null : _registerUser,
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: const Color(0xFF667eea),
+//                       foregroundColor: Colors.white,
+//                       shape: RoundedRectangleBorder(
+//                         borderRadius: BorderRadius.circular(12),
+//                       ),
+//                       elevation: 4,
+//                     ),
+//                     child: _isRegistering
+//                         ? const SizedBox(
+//                             height: 20,
+//                             width: 20,
+//                             child: CircularProgressIndicator(
+//                               strokeWidth: 2,
+//                               valueColor: AlwaysStoppedAnimation<Color>(
+//                                 Colors.white,
+//                               ),
+//                             ),
+//                           )
+//                         : Text(
+//                             'Complete Registration',
+//                             style: GoogleFonts.inter(
+//                               fontSize: 18,
+//                               fontWeight: FontWeight.bold,
+//                             ),
+//                           ),
+//                   ),
+//                 ),
+//                 const SizedBox(height: 32),
+//               ],
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+
+//   InputDecoration _buildInputDecoration(String label) {
+//     return InputDecoration(
+//       labelText: label,
+//       labelStyle: TextStyle(color: Colors.grey.shade600),
+//       filled: true,
+//       fillColor: Colors.grey.shade50,
+//       border: OutlineInputBorder(
+//         borderRadius: BorderRadius.circular(12),
+//         borderSide: BorderSide(color: Colors.grey.shade300),
+//       ),
+//       enabledBorder: OutlineInputBorder(
+//         borderRadius: BorderRadius.circular(12),
+//         borderSide: BorderSide(color: Colors.grey.shade300),
+//       ),
+//       focusedBorder: OutlineInputBorder(
+//         borderRadius: BorderRadius.circular(12),
+//         borderSide: const BorderSide(color: Color(0xFF667eea), width: 2),
+//       ),
+//       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+//     );
+//   }
+// }
+
+// ===================================================================
+// REGISTRATION DETAILS SCREEN — now consistent with other auth screens
 // ===================================================================
 class RegisterDetailsScreen extends StatefulWidget {
   final String phone;
@@ -1174,16 +1826,16 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
           style: GoogleFonts.inter(
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: Colors.black87,
+            color: Colors.white,
           ),
         ),
         const SizedBox(height: 8),
         Container(
           height: 140,
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            color: Colors.white.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.25)),
           ),
           child: imageFile == null
               ? Center(
@@ -1199,10 +1851,19 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
                                   isFacePicture,
                                 );
                               },
-                        icon: const Icon(Icons.photo_library),
-                        label: Text('$buttonText from Gallery'),
+                        icon: const Icon(
+                          Icons.photo_library,
+                          color: Colors.white70,
+                        ),
+                        label: Text(
+                          '$buttonText from Gallery',
+                          style: GoogleFonts.inter(color: Colors.white70),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.white54),
+                        ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: _isRegistering
                             ? null
@@ -1212,8 +1873,17 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
                                   isFacePicture,
                                 );
                               },
-                        icon: const Icon(Icons.camera_alt),
-                        label: Text('$buttonText with Camera'),
+                        icon: const Icon(
+                          Icons.camera_alt,
+                          color: Colors.white70,
+                        ),
+                        label: Text(
+                          '$buttonText with Camera',
+                          style: GoogleFonts.inter(color: Colors.white70),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.white54),
+                        ),
                       ),
                     ],
                   ),
@@ -1222,28 +1892,27 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
                   fit: StackFit.expand,
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       child: Image.file(imageFile, fit: BoxFit.cover),
                     ),
                     Positioned(
-                      top: 8,
-                      right: 8,
+                      top: 12,
+                      right: 12,
                       child: GestureDetector(
                         onTap: () {
                           setState(() {
-                            if (isFacePicture) {
+                            if (isFacePicture)
                               _facePicture = null;
-                            } else {
+                            else
                               _idFrontPicture = null;
-                            }
                           });
                         },
                         child: CircleAvatar(
-                          backgroundColor: Colors.red.withOpacity(0.8),
-                          radius: 14,
+                          backgroundColor: Colors.red.withOpacity(0.9),
+                          radius: 16,
                           child: const Icon(
                             Icons.close,
-                            size: 16,
+                            size: 18,
                             color: Colors.white,
                           ),
                         ),
@@ -1252,7 +1921,7 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
                   ],
                 ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
       ],
     );
   }
@@ -1262,7 +1931,6 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
     final String lastName = _lastNameController.text.trim();
     final String password = _passwordController.text.trim();
 
-    // Validation
     if (firstName.isEmpty || lastName.isEmpty) {
       _showError('Please enter your first and last name');
       return;
@@ -1273,50 +1941,40 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
       return;
     }
 
-    if (_facePicture == null) {
-      _showError('Please upload your face picture');
-      return;
-    }
-
-    if (_idFrontPicture == null) {
-      _showError('Please upload your ID front picture');
-      return;
-    }
-
     final String fullName = '$firstName $lastName';
     setState(() => _isRegistering = true);
 
     try {
-      // Create multipart request
       var request = http.MultipartRequest(
         'POST',
         Uri.parse('$_baseUrl?action=register_multipart'),
       );
 
-      // Add text fields
       request.fields['name'] = fullName;
       request.fields['phone'] = widget.phone;
       request.fields['password'] = password;
       request.fields['user_type'] = 'customer';
 
-      // Add image files
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'face_picture',
-          _facePicture!.path,
-          filename: 'face_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        ),
-      );
+      if (_facePicture != null) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'face_picture',
+            _facePicture!.path,
+            filename: 'face_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          ),
+        );
+      }
 
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'id_front_picture',
-          _idFrontPicture!.path,
-          filename: 'id_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        ),
-      );
+      if (_idFrontPicture != null) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'id_front_picture',
+            _idFrontPicture!.path,
+            filename: 'id_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          ),
+        );
+      }
 
-      // Send request
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
@@ -1331,7 +1989,6 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
           return;
         }
 
-        // Save session data
         final String sessionId = responseData['session_id'];
         final String userId = responseData['user_id'].toString();
         final String userType = responseData['user_type'] ?? 'customer';
@@ -1342,7 +1999,6 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
         await prefs.setString('user_type', userType);
         await prefs.setBool('isLoggedIn', true);
 
-        // Fetch and store profile
         await _fetchAndStoreUserProfile(sessionId);
 
         if (mounted) {
@@ -1399,7 +2055,10 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
         SnackBar(
           content: Text(message),
           backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       );
     }
@@ -1408,119 +2067,168 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          'Complete Registration',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF667eea), Color(0xFF764ba2), Color(0xFFf093fb)],
+            stops: [0.0, 0.6, 1.0],
+          ),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.black87,
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 20),
-                Text(
-                  'Complete Your Profile',
-                  style: GoogleFonts.inter(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Your phone ${widget.phone} is verified.',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Text Fields
-                TextFormField(
-                  controller: _firstNameController,
-                  decoration: _buildInputDecoration('First Name'),
-                  style: GoogleFonts.inter(color: Colors.black87),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _lastNameController,
-                  decoration: _buildInputDecoration('Last Name'),
-                  style: GoogleFonts.inter(color: Colors.black87),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: _buildInputDecoration(
-                    'Password (min 6 characters)',
-                  ),
-                  style: GoogleFonts.inter(color: Colors.black87),
-                ),
-                const SizedBox(height: 32),
-
-                // Face Picture Upload
-                _buildImagePicker(
-                  title: 'Face Picture *',
-                  buttonText: 'Select Face Picture',
-                  imageFile: _facePicture,
-                  isFacePicture: true,
-                ),
-
-                // ID Front Picture Upload
-                _buildImagePicker(
-                  title: 'ID/License Front Picture *',
-                  buttonText: 'Select ID Picture',
-                  imageFile: _idFrontPicture,
-                  isFacePicture: false,
-                ),
-
-                const SizedBox(height: 32),
-
-                // Register Button
-                SizedBox(
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: _isRegistering ? null : _registerUser,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF667eea),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 32.0,
+                vertical: 24.0,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo — consistent with previous screens
+                  Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 25,
+                          offset: const Offset(0, 15),
+                          spreadRadius: 2,
+                        ),
+                      ],
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 2,
                       ),
-                      elevation: 4,
                     ),
-                    child: _isRegistering
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/logo.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(
+                              Icons.delivery_dining_rounded,
+                              size: 55,
+                              color: Colors.white,
+                            ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  Text(
+                    'Complete Your Profile',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Phone verified: ${widget.phone}',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // First Name
+                  TextFormField(
+                    controller: _firstNameController,
+                    decoration: _buildInputDecoration('First Name'),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Last Name
+                  TextFormField(
+                    controller: _lastNameController,
+                    decoration: _buildInputDecoration('Last Name'),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Password
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    decoration: _buildInputDecoration('Password (min 6 chars)'),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // Uncomment these blocks if/when you want to re-enable image uploads
+                  /*
+                  _buildImagePicker(
+                    title: 'Face Picture (optional)',
+                    buttonText: 'Face Photo',
+                    imageFile: _facePicture,
+                    isFacePicture: true,
+                  ),
+                  const SizedBox(height: 24),
+                  _buildImagePicker(
+                    title: 'ID / License Front (optional)',
+                    buttonText: 'ID Photo',
+                    imageFile: _idFrontPicture,
+                    isFacePicture: false,
+                  ),
+                  const SizedBox(height: 32),
+                  */
+
+                  // Register Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 58,
+                    child: ElevatedButton(
+                      onPressed: _isRegistering ? null : _registerUser,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF667eea),
+                        elevation: 6,
+                        shadowColor: Colors.black.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: _isRegistering
+                          ? const SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.8,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF667eea),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              'Create Account',
+                              style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          )
-                        : Text(
-                            'Complete Registration',
-                            style: GoogleFonts.inter(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 32),
-              ],
+
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
           ),
         ),
@@ -1531,22 +2239,23 @@ class _RegisterDetailsScreenState extends State<RegisterDetailsScreen> {
   InputDecoration _buildInputDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: TextStyle(color: Colors.grey.shade600),
+      labelStyle: TextStyle(color: Colors.white70, fontSize: 15),
+      hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
       filled: true,
-      fillColor: Colors.grey.shade50,
+      fillColor: Colors.white.withOpacity(0.13),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF667eea), width: 2),
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Colors.white54, width: 1.6),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
     );
   }
 }

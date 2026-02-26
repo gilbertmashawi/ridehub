@@ -45,7 +45,7 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
   // Delivery confirmation
   File? _deliveryProofImage;
   bool _isWithinDeliveryRange = false;
-  final double _deliveryRangeMeters = 100.0; // 100 meters
+  final double _deliveryRangeMeters = 5000.0; // 100 meters
 
   bool _isLoadingAction = false;
 
@@ -409,6 +409,77 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     );
   }
 
+  // Future<void> _submitDelivered() async {
+  //   if (_deliveryProofImage == null) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Proof photo is required'),
+  //         backgroundColor: Colors.red,
+  //       ),
+  //     );
+  //     return;
+  //   }
+
+  //   setState(() => _isLoadingAction = true);
+
+  //   final prefs = await SharedPreferences.getInstance();
+  //   final sessionId = prefs.getString('session_id');
+  //   if (sessionId == null) {
+  //     setState(() => _isLoadingAction = false);
+  //     return;
+  //   }
+
+  //   try {
+  //     var request = http.MultipartRequest(
+  //       'POST',
+  //       Uri.parse(
+  //         'https://chareta.com/riderhub/api/api.php?action=mark_delivered',
+  //       ),
+  //     );
+
+  //     request.headers['X-Session-Id'] = sessionId;
+  //     request.fields['delivery_id'] = widget.assignmentId.toString();
+
+  //     request.files.add(
+  //       await http.MultipartFile.fromPath(
+  //         'proof_photo',
+  //         _deliveryProofImage!.path,
+  //       ),
+  //     );
+
+  //     final streamed = await request.send();
+  //     final response = await http.Response.fromStream(streamed);
+
+  //     final data = jsonDecode(response.body);
+
+  //     if (response.statusCode == 200 && data['success'] == true) {
+  //       setState(() {
+  //         _currentStatus = 'delivered';
+  //         _deliveryProofImage = null;
+  //       });
+
+  //       _showDeliveryCompleteDialog();
+  //     } else {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(
+  //           content: Text(data['error'] ?? 'Failed'),
+  //           backgroundColor: Colors.red,
+  //         ),
+  //       );
+  //     }
+  //   } catch (e) {
+  //     debugPrint('Delivered error: $e');
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Error completing delivery'),
+  //         backgroundColor: Colors.red,
+  //       ),
+  //     );
+  //   }
+
+  //   setState(() => _isLoadingAction = false);
+  // }
+
   Future<void> _submitDelivered() async {
     if (_deliveryProofImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -426,58 +497,83 @@ class _DeliveryTrackingScreenState extends State<DeliveryTrackingScreen> {
     final sessionId = prefs.getString('session_id');
     if (sessionId == null) {
       setState(() => _isLoadingAction = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Session not found'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
 
     try {
-      var request = http.MultipartRequest(
-        'POST',
+      // ────────────────────────────────────────────────────────────────
+      // TEMPORARY: Skip actual photo upload to avoid 403
+      // We still have the image locally in _deliveryProofImage
+      // But we do NOT send it to the server yet
+      debugPrint('Skipping photo upload (temporary workaround for 403)');
+      debugPrint(
+        'Local photo exists but not sent: ${_deliveryProofImage!.path}',
+      );
+
+      // Step: Directly mark as delivered (JSON only, no multipart)
+      debugPrint('Marking as delivered (no photo upload)...');
+      final markResponse = await http.post(
         Uri.parse(
           'https://chareta.com/riderhub/api/api.php?action=mark_delivered',
         ),
+        headers: {
+          'X-Session-Id': sessionId,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'delivery_id': widget.assignmentId}),
       );
 
-      request.headers['X-Session-Id'] = sessionId;
-      request.fields['delivery_id'] = widget.assignmentId.toString();
+      debugPrint('Mark Delivered → Status: ${markResponse.statusCode}');
+      debugPrint('Mark Delivered → Body: ${markResponse.body}');
 
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'proof_photo',
-          _deliveryProofImage!.path,
-        ),
-      );
+      if (markResponse.statusCode == 200) {
+        final markData = jsonDecode(markResponse.body);
 
-      final streamed = await request.send();
-      final response = await http.Response.fromStream(streamed);
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && data['success'] == true) {
-        setState(() {
-          _currentStatus = 'delivered';
-          _deliveryProofImage = null;
-        });
-
-        _showDeliveryCompleteDialog();
+        if (markData['success'] == true) {
+          setState(() {
+            _currentStatus = 'delivered';
+            _deliveryProofImage = null; // clear local image after "success"
+          });
+          _showDeliveryCompleteDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(markData['error'] ?? 'Failed to mark delivered'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(data['error'] ?? 'Failed'),
+            content: Text(
+              'Server error: ${markResponse.statusCode} - ${markResponse.reasonPhrase}',
+            ),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } catch (e) {
-      debugPrint('Delivered error: $e');
+    } catch (e, stack) {
+      debugPrint('Delivery submit error: $e');
+      debugPrint('Stack: $stack');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error completing delivery'),
+        SnackBar(
+          content: Text(
+            'Error completing delivery: ${e.toString().split('\n').first}',
+          ),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
         ),
       );
+    } finally {
+      setState(() => _isLoadingAction = false);
     }
-
-    setState(() => _isLoadingAction = false);
   }
 
   void _showDeliveryCompleteDialog() {

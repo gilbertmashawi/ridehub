@@ -224,8 +224,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.language,
                     iconColor: const Color(0xFF667eea),
                     label: 'Website',
-                    value: 'www.chareta.com',
-                    onTap: () => _launchURL('https://chareta.com'),
+                    value: 'www.ridehubservices.com',
+                    onTap: () => _launchURL('https://ridehubservices.com'),
                   ),
 
                   // Support Email

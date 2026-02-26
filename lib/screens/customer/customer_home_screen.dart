@@ -471,33 +471,89 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) => [
               SliverAppBar(
-                expandedHeight: 100,
+                expandedHeight: 140.0, // Enough space for clean logo placement
                 floating: false,
                 pinned: true,
                 flexibleSpace: FlexibleSpaceBar(
-                  title: Text(
-                    'Hello, ${_userName.split(' ').first}',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                  title: Padding(
+                    padding: const EdgeInsets.only(
+                      left: 72.0,
+                      bottom: 8.0,
+                    ), // Space for logo on left
+                    child: Text(
+                      'Hello, ${_userName.split(' ').first}',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 22,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
                   ),
                   background: Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                        colors: [
+                          Color(0xFF667eea),
+                          Color(0xFF764ba2),
+                          Color(0xFFf093fb),
+                        ],
+                        stops: [0.0, 0.6, 1.0],
                       ),
                     ),
                     child: Stack(
+                      alignment: Alignment.centerLeft,
                       children: [
+                        // Very subtle decorative elements (almost invisible when collapsed)
                         Positioned(
-                          right: -50,
-                          top: -50,
+                          left: -80,
+                          top: -80,
                           child: Container(
-                            width: 200,
-                            height: 200,
+                            width: 240,
+                            height: 240,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.white.withOpacity(0.1),
+                              color: Colors.white.withOpacity(0.06),
+                            ),
+                          ),
+                        ),
+
+                        // Circular logo on the LEFT – clean & professional
+                        Positioned(
+                          left: 24,
+                          bottom:
+                              16, // Slightly overlaps body edge when collapsed → looks intentional
+                          child: Container(
+                            width: 90,
+                            height: 90,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.20),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.45),
+                                width: 2.2,
+                              ),
+                            ),
+                            child: ClipOval(
+                              child: Image.asset(
+                                'assets/logo.png',
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    const Icon(
+                                      Icons.delivery_dining_rounded,
+                                      size: 48,
+                                      color: Colors.white,
+                                    ),
+                              ),
                             ),
                           ),
                         ),
@@ -508,7 +564,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 actions: [
                   _buildNotificationIndicator(),
                   IconButton(
-                    icon: const Icon(Icons.logout),
+                    icon: const Icon(Icons.logout, color: Colors.white),
                     onPressed: _logout,
                     tooltip: 'Logout',
                   ),
@@ -711,12 +767,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 36, color: color),
+                Icon(icon, size: 34, color: color),
                 const SizedBox(height: 12),
                 Text(
                   title,
                   style: GoogleFonts.inter(
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w600,
                     color: Colors.black87,
                   ),
